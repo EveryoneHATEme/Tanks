@@ -8,6 +8,7 @@ UP, DOWN, LEFT, RIGHT = pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGH
 BUTTONS = {UP, DOWN, LEFT, RIGHT}
 FPS = 30
 CELL_SIZE = 30
+WALL_LIST = []
 
 
 class Game:
@@ -17,13 +18,13 @@ class Game:
         self.cell_size = PLAYGROUND_WIDTH // self.map.shape[1]
         self.left = 0
         self.top = 0
-        CELL_SIZE = self.cell_size
         self.wall_list = []
+        CELL_SIZE = self.cell_size
         self.init_map()
         pygame.init()
         self.screen = pygame.display.set_mode(WINDOW_SIZE)
         self.run = False
-        self.player = Player(5 * self.cell_size, 12 * self.cell_size - 5, self.cell_size - 5, 30)
+        self.player = Player(5 * self.cell_size, 12 * self.cell_size - 5, self.cell_size - 5, 30, self)
 
     def main_loop(self):
         self.run = True
@@ -34,6 +35,9 @@ class Game:
                 elif event.type == pygame.KEYDOWN or event.type == pygame.KEYUP:
                     if event.key in BUTTONS:
                         self.player.check_controls(event, event.type == pygame.KEYDOWN)
+                    if event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_SPACE:
+                            self.player.fire()
                 elif event.type == pygame.MOUSEBUTTONUP:
                     if event.button == 1:
                         self.player.fire(self.converted_mouse_pos(event.pos))
@@ -49,6 +53,9 @@ class Game:
         canvas = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
         canvas.fill((0, 0, 0))
         for block in self.wall_list:
+            if block.durability <= 0:
+                self.wall_list.remove(block)
+                continue
             block.render(canvas)
         for projectile in self.player.fired_projectiles:
             projectile.render(canvas)
@@ -86,13 +93,14 @@ def read_map(filename: str):
 
 
 class Tank:
-    def __init__(self, x, y, cell_size, velocity):
+    def __init__(self, x, y, cell_size, velocity, parent):
         self.x, self.y = x, y
+        self.parent = parent
         self.cell_size = cell_size
         self.velocity = velocity
         self.gun_direction = 'UP'
         self.fired_projectiles = list()
-        self.projectile = ProjectileBasic()
+        self.projectile = ProjectileBasic(self)
         self.move_dict = {key: False for key in BUTTONS}
 
     def get_rect(self, true_coords=False):
@@ -108,14 +116,16 @@ class Tank:
     def render(self, screen: pygame.SurfaceType):
         pygame.draw.rect(screen, (255, 255, 255), self.get_rect())
 
-    def fire(self, mouse_pos):
+    def fire(self, mouse_pos=None):
         x, y, w, h = self.get_rect()
-        mouse_x, mouse_y = mouse_pos
-        x_rel, y_rel = mouse_x - (x + self.cell_size // 2), mouse_y - (y + self.cell_size // 2)
-        if abs(x_rel) > abs(y_rel):
-            self.gun_direction = 'RIGHT' if x_rel >= 0 else 'LEFT'
-        else:
-            self.gun_direction = 'DOWN' if y_rel >= 0 else 'UP'
+        x2, y2 = x, y
+        if mouse_pos:
+            mouse_x, mouse_y = mouse_pos
+            x_rel, y_rel = mouse_x - (x + self.cell_size // 2), mouse_y - (y + self.cell_size // 2)
+            if abs(x_rel) > abs(y_rel):
+                self.gun_direction = 'RIGHT' if x_rel >= 0 else 'LEFT'
+            else:
+                self.gun_direction = 'DOWN' if y_rel >= 0 else 'UP'
         if self.gun_direction == 'UP':
             x = x + self.cell_size // 2
         elif self.gun_direction == 'DOWN':
@@ -127,12 +137,14 @@ class Tank:
             x = x + self.cell_size
             y = y + self.cell_size // 2
         self.projectile.x, self.projectile.y, self.projectile.direction = x, y, self.gun_direction
+        self.projectile.set_vector(((x2 + self.cell_size // 2) - x, (y2 + self.cell_size // 2) - y))
         self.fired_projectiles.append(self.projectile)
+        self.projectile = ProjectileBasic(self)
 
 
 class Player(Tank):
-    def __init__(self, x, y, cell_size, velocity):
-        super().__init__(x, y, cell_size, velocity)
+    def __init__(self, x, y, cell_size, velocity, parent):
+        super().__init__(x, y, cell_size, velocity, parent)
 
     def check_controls(self, event: pygame.event.EventType, key_down: bool):
         if event.key == pygame.K_UP:
@@ -197,6 +209,7 @@ class Block:
     def __init__(self, x, y, cell_size):
         self.x, self.y = x, y
         self.cell_size = cell_size
+        self.durability = 3
         self.structure = None  # Массив, чтобы придать форму блоку, пока что None, поэтому все блоки квадратные
 
     def render(self, screen):
@@ -205,6 +218,7 @@ class Block:
 
 class BrickWall(Block):
     def __init__(self, x, y, cell_size):
+        self.durability = 5
         super().__init__(x, y, cell_size)
 
     def render(self, screen):
@@ -218,10 +232,13 @@ class BrickWall(Block):
 
 
 class ProjectileBasic:
-    def __init__(self):
-        self.damage = 5
+    def __init__(self, player):
+        self.player = player
+        self.damage = 1
         self.x = None
         self.y = None
+        self.vector_x = None
+        self.vector_y = None
         self.direction = 'UP'
         self.caliber = int(CELL_SIZE // 6)
         #  Зона поражения в клетках
@@ -231,8 +248,31 @@ class ProjectileBasic:
         self.color = pygame.Color('magenta')
 
     def render(self, screen):
+        self.x += self.velocity * FPS / 1000 * -self.vector_x
+        self.y += self.velocity * FPS / 1000 * -self.vector_y
         pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)), self.caliber)
-        #if self.direction == 'UP':
+        if self.x not in range(-40, PLAYGROUND_WIDTH + 40) or\
+                self.y not in range(-40, PLAYGROUND_WIDTH + 40):
+            self.remove()
+        if self.check_intersections(self.x, self.y, self.player.parent.wall_list):
+            self.remove()
+
+    def remove(self):
+        self.player.fired_projectiles.remove(self)
+
+    def set_vector(self, end_pos):
+        array = np.array(end_pos)
+        self.vector_x, self.vector_y = array / np.linalg.norm(array)
+
+    def check_intersections(self, x, y, objects_list: list):
+        first_x1, first_y1, first_x2, first_y2 = x - self.caliber, y - self.caliber, x + self.caliber, y + self.caliber
+        for obj in objects_list:
+            second_x1, second_y1, second_x2, second_y2 = obj.get_rect(true_coords=True)
+            if first_x1 <= second_x1 <= first_x2 or second_x1 <= first_x1 <= second_x2:
+                if first_y1 <= second_y1 <= first_y2 or second_y1 <= first_y1 <= second_y2:
+                    obj.durability -= 1
+                    return True
+        return False
 
 
 if __name__ == '__main__':
