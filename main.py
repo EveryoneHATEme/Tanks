@@ -218,8 +218,8 @@ class Block:
 
 class BrickWall(Block):
     def __init__(self, x, y, cell_size):
-        self.durability = 5
         super().__init__(x, y, cell_size)
+        self.durability = 5
 
     def render(self, screen):
         pygame.draw.rect(screen, (255, 0, 0), self.get_rect())
@@ -235,6 +235,10 @@ class ProjectileBasic:
     def __init__(self, player):
         self.player = player
         self.damage = 1
+        # Снаряд проходит сквозь N блоков и дамажит каждый перед исчезновением
+        self.piercing = 1
+        # Не допускаем дамажить 1 блок 2 раза
+        self.ignored_blocks = set()
         self.x = None
         self.y = None
         self.vector_x = None
@@ -244,7 +248,6 @@ class ProjectileBasic:
         #  Зона поражения в клетках
         self.area_of_effect = 1
         self.velocity = 100
-        self.clock = None
         self.color = pygame.Color('magenta')
 
     def render(self, screen):
@@ -255,7 +258,8 @@ class ProjectileBasic:
                 self.y not in range(-40, PLAYGROUND_WIDTH + 40):
             self.remove()
         if self.check_intersections(self.x, self.y, self.player.parent.wall_list):
-            self.remove()
+            if self.piercing <= 0:
+                self.remove()
 
     def remove(self):
         self.player.fired_projectiles.remove(self)
@@ -267,11 +271,14 @@ class ProjectileBasic:
     def check_intersections(self, x, y, objects_list: list):
         first_x1, first_y1, first_x2, first_y2 = x - self.caliber, y - self.caliber, x + self.caliber, y + self.caliber
         for obj in objects_list:
-            second_x1, second_y1, second_x2, second_y2 = obj.get_rect(true_coords=True)
-            if first_x1 <= second_x1 <= first_x2 or second_x1 <= first_x1 <= second_x2:
-                if first_y1 <= second_y1 <= first_y2 or second_y1 <= first_y1 <= second_y2:
-                    obj.durability -= 1
-                    return True
+            if obj not in self.ignored_blocks:
+                second_x1, second_y1, second_x2, second_y2 = obj.get_rect(true_coords=True)
+                if first_x1 <= second_x1 <= first_x2 or second_x1 <= first_x1 <= second_x2:
+                    if first_y1 <= second_y1 <= first_y2 or second_y1 <= first_y1 <= second_y2:
+                        obj.durability -= 1
+                        self.ignored_blocks.add(obj)
+                        self.piercing -= 1
+                        return True
         return False
 
 
