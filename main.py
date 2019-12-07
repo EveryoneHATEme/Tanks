@@ -1,5 +1,6 @@
 import pygame
 import numpy as np
+import os
 
 
 WINDOW_SIZE = (1000, 700)
@@ -7,13 +8,35 @@ PLAYGROUND_WIDTH = 700
 UP, DOWN, LEFT, RIGHT = pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT
 BUTTONS = {UP, DOWN, LEFT, RIGHT}
 FPS = 30
-CELL_SIZE = 30
+CELL_SIZE = 32
 WALL_LIST = []
+pygame.init()
+pygame.display.set_mode(WINDOW_SIZE)
+
+
+def load_image(name, color_key=None):
+    fullname = os.path.join('sprites', name)
+    image = pygame.image.load(fullname).convert()
+    if color_key is not None:
+        if color_key == -1:
+            color_key = image.get_at((0, 0))
+        image.set_colorkey(color_key)
+    else:
+        image = image.convert_alpha()
+    return image
+
+
+def scale(image, size):
+    return pygame.transform.scale(image, size)
+
+
+ALL_SPRITES = pygame.sprite.Group()
 
 
 class Game:
     def __init__(self):
         global CELL_SIZE
+        self.screen = pygame.display.get_surface()
         self.map = read_map('map1.txt').T  # загружаем карту из txt файла, возможно будем хранить по-другому
         self.cell_size = PLAYGROUND_WIDTH // self.map.shape[1]
         self.left = 0
@@ -21,8 +44,6 @@ class Game:
         self.wall_list = []
         CELL_SIZE = self.cell_size
         self.init_map()
-        pygame.init()
-        self.screen = pygame.display.set_mode(WINDOW_SIZE)
         self.run = False
         self.player = Player(5 * self.cell_size, 12 * self.cell_size - 5, self.cell_size - 5, 30, self)
 
@@ -52,14 +73,10 @@ class Game:
         """
         canvas = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
         canvas.fill((0, 0, 0))
-        for block in self.wall_list:
-            if block.durability <= 0:
-                self.wall_list.remove(block)
-                continue
-            block.render(canvas)
         for projectile in self.player.fired_projectiles:
-            projectile.render(canvas)
+            projectile.move()
         self.player.render(canvas)
+        ALL_SPRITES.draw(canvas)
         self.screen.fill((0, 0, 0))
         sc_width, sc_height = self.screen.get_size()
         self.left = sc_width // 2 - canvas.get_width() // 2
@@ -93,14 +110,14 @@ def read_map(filename: str):
 
 
 class Tank:
-    def __init__(self, x, y, cell_size, velocity, parent):
+    def __init__(self, x, y, cell_size, velocity, game):
         self.x, self.y = x, y
-        self.parent = parent
+        self.game = game
         self.cell_size = cell_size
         self.velocity = velocity
         self.gun_direction = 'UP'
         self.fired_projectiles = list()
-        self.projectile = ProjectileBasic(self)
+        self.projectile = None
         self.move_dict = {key: False for key in BUTTONS}
 
     def get_rect(self, true_coords=False):
@@ -136,15 +153,14 @@ class Tank:
         elif self.gun_direction == 'RIGHT':
             x = x + self.cell_size
             y = y + self.cell_size // 2
-        self.projectile.x, self.projectile.y, self.projectile.direction = x, y, self.gun_direction
+        self.projectile = ProjectileBasic(x, y, self.gun_direction, self)
         self.projectile.set_vector(((x2 + self.cell_size // 2) - x, (y2 + self.cell_size // 2) - y))
         self.fired_projectiles.append(self.projectile)
-        self.projectile = ProjectileBasic(self)
 
 
 class Player(Tank):
-    def __init__(self, x, y, cell_size, velocity, parent):
-        super().__init__(x, y, cell_size, velocity, parent)
+    def __init__(self, x, y, cell_size, velocity, game):
+        super().__init__(x, y, cell_size, velocity, game)
 
     def check_controls(self, event: pygame.event.EventType, key_down: bool):
         if event.key == pygame.K_UP:
@@ -201,28 +217,12 @@ class Player(Tank):
         return False
 
 
-class Block:
-    """
-    TODO: надо проработать массив структуры стены. В оригинале был 4 * 4, думаю, лучше будет сделать так же.
-        Также, надо придумать, как хранить структуру стен в txt файле.
-    """
+class Block(pygame.sprite.Sprite):
     def __init__(self, x, y, cell_size):
+        super().__init__(ALL_SPRITES)
         self.x, self.y = x, y
         self.cell_size = cell_size
         self.durability = 3
-        self.structure = None  # Массив, чтобы придать форму блоку, пока что None, поэтому все блоки квадратные
-
-    def render(self, screen):
-        pass
-
-
-class BrickWall(Block):
-    def __init__(self, x, y, cell_size):
-        super().__init__(x, y, cell_size)
-        self.durability = 5
-
-    def render(self, screen):
-        pygame.draw.rect(screen, (255, 0, 0), self.get_rect())
 
     def get_rect(self, true_coords=False):
         if true_coords:
@@ -231,45 +231,60 @@ class BrickWall(Block):
             return int(self.x), int(self.y), self.cell_size, self.cell_size
 
 
-class ProjectileBasic:
-    def __init__(self, player):
+class BrickWall(Block):
+    def __init__(self, x, y, cell_size):
+        super().__init__(x, y, cell_size)
+        self.image = scale(load_image('BrickWall.png'), (self.cell_size, self.cell_size))
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        self.durability = 5
+
+
+class ProjectileBasic(pygame.sprite.Sprite):
+    def __init__(self, x, y, direction, player):
+        super().__init__(ALL_SPRITES)
         self.player = player
         self.damage = 1
-        # Снаряд проходит сквозь N блоков и дамажит каждый перед исчезновением
+        # Снаряд проходит сквозь N объектов и дамажит каждый перед исчезновением
         self.piercing = 1
-        # Не допускаем дамажить 1 блок 2 раза
+        # Не допускаем дамажить 1 объект 2 раза
         self.ignored_blocks = set()
-        self.x = None
-        self.y = None
+        self.x = x
+        self.y = y
         self.vector_x = None
         self.vector_y = None
-        self.direction = 'UP'
+        self.direction = direction
         self.caliber = int(CELL_SIZE // 6)
         #  Зона поражения в клетках
         self.area_of_effect = 1
         self.velocity = 100
-        self.color = pygame.Color('magenta')
+        self.image = scale(load_image(F'projectile_{self.direction}.png'),
+                           (self.player.cell_size // 6, self.player.cell_size // 6))
+        self.rect = self.image.get_rect()
+        self.rect.x = x - self.rect.width // 2
+        self.rect.y = y - self.rect.height // 2
 
-    def render(self, screen):
-        self.x += self.velocity * FPS / 1000 * -self.vector_x
-        self.y += self.velocity * FPS / 1000 * -self.vector_y
-        pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)), self.caliber)
-        if self.x not in range(-40, PLAYGROUND_WIDTH + 40) or\
-                self.y not in range(-40, PLAYGROUND_WIDTH + 40):
+    def move(self):
+        self.rect.x += self.velocity * FPS / 1000 * -self.vector_x
+        self.rect.y += self.velocity * FPS / 1000 * -self.vector_y
+        if self.rect.x not in range(-40, PLAYGROUND_WIDTH + 40) or \
+                self.rect.y not in range(-40, PLAYGROUND_WIDTH + 40):
             self.remove()
-        if self.check_intersections(self.x, self.y, self.player.parent.wall_list):
+        if self.check_intersections(self.rect.x, self.rect.y, self.player.game.wall_list):
             if self.piercing <= 0:
                 self.remove()
 
     def remove(self):
         self.player.fired_projectiles.remove(self)
+        ALL_SPRITES.remove(self)
 
     def set_vector(self, end_pos):
         array = np.array(end_pos)
         self.vector_x, self.vector_y = array / np.linalg.norm(array)
 
     def check_intersections(self, x, y, objects_list: list):
-        first_x1, first_y1, first_x2, first_y2 = x - self.caliber, y - self.caliber, x + self.caliber, y + self.caliber
+        first_x1, first_y1, first_x2, first_y2 = x, y, x + self.rect.width, y + self.rect.height
         for obj in objects_list:
             if obj not in self.ignored_blocks:
                 second_x1, second_y1, second_x2, second_y2 = obj.get_rect(true_coords=True)
@@ -278,6 +293,9 @@ class ProjectileBasic:
                         obj.durability -= 1
                         self.ignored_blocks.add(obj)
                         self.piercing -= 1
+                        if obj.durability <= 0:
+                            self.player.game.wall_list.remove(obj)
+                            ALL_SPRITES.remove(obj)
                         return True
         return False
 
