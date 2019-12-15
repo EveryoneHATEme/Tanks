@@ -18,7 +18,7 @@ class Game:
         pygame.init()
         self.screen = pygame.display.set_mode(WINDOW_SIZE)
         self.run = False
-        self.player = Player(5 * self.cell_size, 12 * self.cell_size - 5, self.cell_size - 5, 30, self.sprites)
+        self.player = Player(5 * self.cell_size, 12 * self.cell_size - 10, self.cell_size - 10, 30, self.sprites)
         self.sprites.add(self.player)
 
     def main_loop(self):
@@ -27,9 +27,7 @@ class Game:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.run = False
-                elif event.type == pygame.KEYDOWN or event.type == pygame.KEYUP:
-                    if event.key in BUTTONS:
-                        self.player.check_controls(event, event.type == pygame.KEYDOWN)
+            self.player.check_controls()
             self.sprites.update()
             self.render()
 
@@ -68,8 +66,27 @@ class Tank(pygame.sprite.Sprite):
         super().__init__(*groups)
         self.rect = pygame.Rect(x, y, cell_size, cell_size)
         self.velocity = velocity
+        self.vel_x, self.vel_y = 0, 0
         self.move_dict = {key: False for key in BUTTONS}
         self.image = pygame.Surface((cell_size, cell_size))
+        self.facing = UP
+
+    def update(self, *args):
+        self.rect.y += self.vel_y / FPS
+        collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
+        if collided_count > 1:
+            self.rect.y -= self.vel_y / FPS
+        self.rect.x += self.vel_x / FPS
+        if len(pygame.sprite.spritecollide(self, self.groups()[0], False)) > 1:
+            self.rect.x -= self.vel_x / FPS
+        if self.vel_x > 0:
+            self.facing = RIGHT
+        elif self.vel_x < 0:
+            self.facing = LEFT
+        elif self.vel_y > 0:
+            self.facing = DOWN
+        else:
+            self.facing = UP
 
 
 class Player(Tank):
@@ -77,47 +94,22 @@ class Player(Tank):
         super().__init__(x, y, cell_size, velocity, group)
         self.image.fill((64, 255, 64))
 
-    def check_controls(self, event: pygame.event.EventType, key_down: bool):
-        if event.key == pygame.K_UP:
-            self.move_dict[UP] = key_down
-        elif event.key == pygame.K_DOWN:
-            self.move_dict[DOWN] = key_down
-        elif event.key == pygame.K_LEFT:
-            self.move_dict[LEFT] = key_down
-        elif event.key == pygame.K_RIGHT:
-            self.move_dict[RIGHT] = key_down
-
-    def update(self, *args):
-        if self.move_dict[UP]:
-            self.rect.y -= self.velocity / FPS
-        if self.move_dict[DOWN]:
-            self.rect.y += self.velocity / FPS
-        if self.move_dict[LEFT]:
-            self.rect.x -= self.velocity / FPS
-        if self.move_dict[RIGHT]:
-            self.rect.x += self.velocity / FPS
-        self.collide_handler()
-
-    def collide_handler(self):
-        is_moved = {i: False for i in {'top', 'bottom', 'left', 'right'}}
-        for sprite in self.groups()[0].spritedict.keys():
-            if sprite is not self and pygame.sprite.collide_rect(self, sprite):
-                if self.rect.centery < sprite.rect.centery or\
-                        self.rect.centery > sprite.rect.centery:
-                    if self.move_dict[UP] and not is_moved['top']:
-                        self.rect.top = sprite.rect.bottom
-                        is_moved['top'] = True
-                    elif self.move_dict[DOWN] and not is_moved['bottom']:
-                        self.rect.bottom = sprite.rect.top
-                        is_moved['bottom'] = True
-                if self.rect.centerx < sprite.rect.centerx or\
-                        self.rect.centerx > sprite.rect.centerx:
-                    if self.move_dict[LEFT] and not is_moved['left']:
-                        self.rect.left = sprite.rect.right
-                        is_moved['left'] = True
-                    elif self.move_dict[RIGHT] and not is_moved['right']:
-                        self.rect.right = sprite.rect.left
-                        is_moved['right'] = True
+    def check_controls(self):
+        if pygame.key.get_pressed()[pygame.K_LEFT]:
+            self.vel_x = -self.velocity
+            self.vel_y = 0
+        elif pygame.key.get_pressed()[pygame.K_RIGHT]:
+            self.vel_x = self.velocity
+            self.vel_y = 0
+        elif pygame.key.get_pressed()[pygame.K_UP]:
+            self.vel_y = -self.velocity
+            self.vel_x = 0
+        elif pygame.key.get_pressed()[pygame.K_DOWN]:
+            self.vel_y = self.velocity
+            self.vel_x = 0
+        else:
+            self.vel_x = 0
+            self.vel_y = 0
 
 
 class Block(pygame.sprite.Sprite):
@@ -136,6 +128,30 @@ class BrickWall(Block):
         super().__init__(x, y, cell_size)
         self.image = pygame.Surface((cell_size, cell_size))
         self.image.fill((136, 69, 53))
+
+
+class Bullet(pygame.sprite.Sprite):
+    def __init__(self, owner: Tank, *groups):
+        super().__init__(*groups)
+        self.owner = owner
+        self.rect = pygame.Rect(0, 0, 50, 50)
+        if owner.facing == LEFT:
+            self.rect.center = owner.rect.midleft
+            self.velocity_x, self.velocity_y = -60, 0
+        elif owner.facing == RIGHT:
+            self.rect.center = owner.rect.midright
+            self.velocity_x, self.velocity_y = 60, 0
+        elif owner.facing == DOWN:
+            self.rect.center = owner.rect.midbottom
+            self.velocity_x, self.velocity_y = 0, 60
+        else:
+            self.rect.center = owner.rect.midtop
+            self.velocity_x, self.velocity_y = 0, -60
+        self.image = pygame.Surface((50, 50))
+        self.image.fill((255, 0, 0))
+
+    #def update(self, *args):
+
 
 
 if __name__ == '__main__':
