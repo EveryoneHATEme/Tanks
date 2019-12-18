@@ -53,6 +53,10 @@ class Game:
             for j in range(PLAYGROUND_WIDTH // self.cell_size):
                 if self.map[i, j] == 1:
                     self.sprites.add(BrickWall(i * self.cell_size, j * self.cell_size, self.cell_size))
+                elif self.map[i, j] == 2:
+                    self.sprites.add(StrongBrickWall(i * self.cell_size, j * self.cell_size, self.cell_size))
+                elif self.map[i, j] == 3:
+                    self.sprites.add(WaterWall(i * self.cell_size, j * self.cell_size, self.cell_size))
                 elif self.map[i, j] == 9:
                     self.player.rect.topleft = (i * self.cell_size, j * self.cell_size)
 
@@ -133,6 +137,20 @@ class BrickWall(Block):
         self.image.fill((136, 69, 53))
         self.mask = pygame.mask.from_surface(self.image)
 
+class StrongBrickWall(Block):
+    def __init__(self, x, y, cell_size):
+        super().__init__(x, y, cell_size)
+        self.image = pygame.Surface((cell_size, cell_size), pygame.SRCALPHA)
+        self.image.fill((95, 95, 95))
+        self.mask = pygame.mask.from_surface(self.image)
+
+class WaterWall(Block):
+    def __init__(self, x, y, cell_size):
+        super().__init__(x, y, cell_size)
+        self.image = pygame.Surface((cell_size, cell_size), pygame.SRCALPHA)
+        self.image.fill((0, 0, 255))
+        self.mask = pygame.mask.from_surface(self.image)
+
 
 class Bullet(pygame.sprite.Sprite):
     def __init__(self, owner: Tank, *groups):
@@ -160,8 +178,14 @@ class Bullet(pygame.sprite.Sprite):
         self.rect.centery += self.velocity_y / FPS
         collide_with = get_collided_by_mask(self, self.owner.groups()[0])
         if collide_with:
-            self.owner.groups()[0].remove(*collide_with)
-            self.terminate()
+            print(collide_with)
+            for sp in collide_with:
+                if not isinstance(sp, StrongBrickWall) and not isinstance(sp, WaterWall):
+                    self.owner.groups()[0].remove(sp)
+            if isinstance(sp, WaterWall):
+                pass
+            else:
+                self.terminate()
         if self.rect.bottom < 0 or self.rect.top > PLAYGROUND_WIDTH:
             self.terminate()
         elif self.rect.right < 0 or self.rect.left > PLAYGROUND_WIDTH:
@@ -182,8 +206,8 @@ def get_collided_by_mask(sprite_1: pygame.sprite.Sprite, group: pygame.sprite.Gr
     collided = []
     for sprite_2 in group.spritedict.keys():
         if pygame.sprite.collide_mask(sprite_1, sprite_2) and sprite_1 is not sprite_2 and sprite_2:
-            if isinstance(sprite_1, Bullet) and sprite_1.owner is sprite_2:
-                continue
+            #if isinstance(sprite_1, Bullet) and sprite_1.owner is sprite_2:
+            #    continue
             collided.append(sprite_2)
     return collided
 
