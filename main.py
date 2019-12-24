@@ -1,51 +1,25 @@
 import pygame
 import numpy as np
-import os
 
 
 WINDOW_SIZE = (1000, 700)
 PLAYGROUND_WIDTH = 700
-UP, DOWN, LEFT, RIGHT = pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT
-BUTTONS = {UP, DOWN, LEFT, RIGHT}
+UP, DOWN, LEFT, RIGHT, SHOOT = pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT, pygame.K_SPACE
+BUTTONS = {UP, DOWN, LEFT, RIGHT, SHOOT}
 FPS = 30
-CELL_SIZE = 32
-WALL_LIST = []
-pygame.init()
-pygame.display.set_mode(WINDOW_SIZE)
-
-
-def load_image(name, color_key=None):
-    fullname = os.path.join('sprites', name)
-    image = pygame.image.load(fullname).convert()
-    if color_key is not None:
-        if color_key == -1:
-            color_key = image.get_at((0, 0))
-        image.set_colorkey(color_key)
-    else:
-        image = image.convert_alpha()
-    return image
-
-
-def scale(image, size):
-    return pygame.transform.scale(image, size)
-
-
-ALL_SPRITES = pygame.sprite.Group()
 
 
 class Game:
     def __init__(self):
-        global CELL_SIZE
-        self.screen = pygame.display.get_surface()
         self.map = read_map('map1.txt').T  # загружаем карту из txt файла, возможно будем хранить по-другому
         self.cell_size = PLAYGROUND_WIDTH // self.map.shape[1]
-        self.left = 0
-        self.top = 0
-        self.wall_list = []
-        CELL_SIZE = self.cell_size
+        self.sprites = pygame.sprite.Group()
+        self.player = Player(0, 0, self.cell_size * 2 - 10, 30, self.sprites)
         self.init_map()
+        pygame.init()
+        self.screen = pygame.display.set_mode(WINDOW_SIZE)
         self.run = False
-        self.player = Player(5 * self.cell_size, 12 * self.cell_size - 5, self.cell_size - 5, 30, self)
+        self.sprites.add(self.player)
 
     def main_loop(self):
         self.run = True
@@ -53,18 +27,8 @@ class Game:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.run = False
-                elif event.type == pygame.KEYDOWN or event.type == pygame.KEYUP:
-                    if event.key in BUTTONS:
-                        self.player.check_controls(event, event.type == pygame.KEYDOWN)
-                    if event.type == pygame.KEYDOWN:
-                        if event.key == pygame.K_SPACE:
-                            self.player.fire()
-                elif event.type == pygame.MOUSEBUTTONUP:
-                    if event.button == 1:
-                        self.player.fire(self.converted_mouse_pos(event.pos))
-            new_x, new_y = self.player.coords_after_move()
-            if not self.player.check_intersections(new_x, new_y, self.wall_list):
-                self.player.move()
+                self.player.check_controls(event)
+            self.sprites.update()
             self.render()
 
     def render(self):
@@ -73,15 +37,11 @@ class Game:
         """
         canvas = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
         canvas.fill((0, 0, 0))
-        for projectile in self.player.fired_projectiles:
-            projectile.move()
-        self.player.render(canvas)
-        ALL_SPRITES.draw(canvas)
+        self.sprites.draw(canvas)
         self.screen.fill((0, 0, 0))
         sc_width, sc_height = self.screen.get_size()
-        self.left = sc_width // 2 - canvas.get_width() // 2
-        self.top = sc_height // 2 - canvas.get_height() // 2
-        self.screen.blit(canvas, (self.left, self.top))
+        self.screen.blit(canvas, (sc_width // 2 - canvas.get_width() // 2,
+                                  sc_height // 2 - canvas.get_height() // 2))
         pygame.display.flip()
 
     def init_map(self):
@@ -92,212 +52,164 @@ class Game:
         for i in range(PLAYGROUND_WIDTH // self.cell_size):
             for j in range(PLAYGROUND_WIDTH // self.cell_size):
                 if self.map[i, j] == 1:
-                    self.wall_list.append(BrickWall(i * self.cell_size, j * self.cell_size,
-                                                    self.cell_size))
-
-    def converted_mouse_pos(self, mouse_pos):
-        """
-            При работе с мышкой юзаем это, т.к. дефолтные коорды считаются относительно
-            основного окна(не игрового) и не учитывают отступы
-        """
-        return mouse_pos[0] - self.left, mouse_pos[1] - self.top,
+                    self.sprites.add(BrickWall(i * self.cell_size, j * self.cell_size, self.cell_size))
+                elif self.map[i, j] == 2:
+                    self.sprites.add(StrongBrickWall(i * self.cell_size, j * self.cell_size, self.cell_size))
+                elif self.map[i, j] == 3:
+                    self.sprites.add(WaterWall(i * self.cell_size, j * self.cell_size, self.cell_size))
+                elif self.map[i, j] == 9:
+                    self.player.rect.topleft = (i * self.cell_size, j * self.cell_size)
 
 
-def read_map(filename: str):
-    with open(filename) as file:
-        res = [[int(i) for i in line.split()] for line in file.readlines()]
-        return np.array(res, dtype=int, ndmin=1)
-
-
-class Tank:
-    def __init__(self, x, y, cell_size, velocity, game):
-        self.x, self.y = x, y
-        self.game = game
-        self.cell_size = cell_size
+class Tank(pygame.sprite.Sprite):
+    def __init__(self, x, y, cell_size, velocity, *groups):
+        super().__init__(*groups)
+        self.rect = pygame.Rect(x, y, cell_size, cell_size)
         self.velocity = velocity
-        self.gun_direction = 'UP'
-        self.fired_projectiles = list()
-        self.projectile = None
+        self.vel_x, self.vel_y = 0, 0
         self.move_dict = {key: False for key in BUTTONS}
+        self.image = pygame.Surface((cell_size, cell_size))
+        self.facing = UP
+        self.bullets = pygame.sprite.Group()
 
-    def get_rect(self, true_coords=False):
-        """
-        При true_coords = False: Возвращает координаты в формате pygame (x, y, width, height).
-        При true_coords = True: Возвращает реальные координаты верхнего левого края и правого нижнего
-        """
-        if true_coords:
-            return self.x, self.y, self.x + self.cell_size, self.y + self.cell_size
-        else:
-            return int(self.x), int(self.y), self.cell_size, self.cell_size
-
-    def render(self, screen: pygame.SurfaceType):
-        pygame.draw.rect(screen, (255, 255, 255), self.get_rect())
-
-    def fire(self, mouse_pos=None):
-        x, y, w, h = self.get_rect()
-        x2, y2 = x, y
-        if mouse_pos:
-            mouse_x, mouse_y = mouse_pos
-            x_rel, y_rel = mouse_x - (x + self.cell_size // 2), mouse_y - (y + self.cell_size // 2)
-            if abs(x_rel) > abs(y_rel):
-                self.gun_direction = 'RIGHT' if x_rel >= 0 else 'LEFT'
-            else:
-                self.gun_direction = 'DOWN' if y_rel >= 0 else 'UP'
-        if self.gun_direction == 'UP':
-            x = x + self.cell_size // 2
-        elif self.gun_direction == 'DOWN':
-            x = x + self.cell_size // 2
-            y = y + self.cell_size
-        elif self.gun_direction == 'LEFT':
-            y = y + self.cell_size // 2
-        elif self.gun_direction == 'RIGHT':
-            x = x + self.cell_size
-            y = y + self.cell_size // 2
-        self.projectile = ProjectileBasic(x, y, self.gun_direction, self)
-        self.projectile.set_vector(((x2 + self.cell_size // 2) - x, (y2 + self.cell_size // 2) - y))
-        self.fired_projectiles.append(self.projectile)
+    def update(self, *args):
+        self.rect.y += self.vel_y / FPS
+        collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
+        if collided_count > 1:
+            self.rect.y -= self.vel_y / FPS
+        self.rect.x += self.vel_x / FPS
+        if len(pygame.sprite.spritecollide(self, self.groups()[0], False)) > 1:
+            self.rect.x -= self.vel_x / FPS
+        if self.vel_x > 0:
+            self.facing = RIGHT
+        elif self.vel_x < 0:
+            self.facing = LEFT
+        elif self.vel_y > 0:
+            self.facing = DOWN
+        elif self.vel_y < 0:
+            self.facing = UP
+        self.bullets.update()
 
 
 class Player(Tank):
-    def __init__(self, x, y, cell_size, velocity, game):
-        super().__init__(x, y, cell_size, velocity, game)
+    def __init__(self, x, y, cell_size, velocity, group):
+        super().__init__(x, y, cell_size, velocity, group)
+        self.image.fill((64, 255, 64))
 
-    def check_controls(self, event: pygame.event.EventType, key_down: bool):
-        if event.key == pygame.K_UP:
-            self.move_dict[UP] = key_down
-        elif event.key == pygame.K_DOWN:
-            self.move_dict[DOWN] = key_down
-        elif event.key == pygame.K_LEFT:
-            self.move_dict[LEFT] = key_down
-        elif event.key == pygame.K_RIGHT:
-            self.move_dict[RIGHT] = key_down
-
-    def coords_after_move(self):
-        """
-        Возвращает координаты, если пользователь пойдет в указанном направлении
-        Нужен, чтобы провести проверку на пересечения (см. Game.main_loop(self))
-        """
-        res_x, res_y = self.get_rect()[:2]
-
-        if self.move_dict[UP]:
-            res_y -= self.velocity / FPS
-            self.gun_direction = 'UP'
-        elif self.move_dict[DOWN]:
-            res_y += self.velocity / FPS
-            self.gun_direction = 'DOWN'
-        elif self.move_dict[LEFT]:
-            res_x -= self.velocity / FPS
-            self.gun_direction = 'LEFT'
-        elif self.move_dict[RIGHT]:
-            res_x += self.velocity / FPS
-            self.gun_direction = 'RIGHT'
-
-        return res_x, res_y
-
-    def move(self):
-        if self.move_dict[UP]:
-            self.y -= self.velocity / FPS
-        elif self.move_dict[DOWN]:
-            self.y += self.velocity / FPS
-        elif self.move_dict[LEFT]:
-            self.x -= self.velocity / FPS
-        elif self.move_dict[RIGHT]:
-            self.x += self.velocity / FPS
-
-    def check_intersections(self, x, y, objects_list: list):
-        """
-        TODO: здесь есть баг - если упремся в стену горизонтально, то вертикально двигаться не получается
-        """
-        first_x1, first_y1, first_x2, first_y2 = x, y, x + self.cell_size, y + self.cell_size
-        for obj in objects_list:
-            second_x1, second_y1, second_x2, second_y2 = obj.get_rect(true_coords=True)
-            if first_x1 <= second_x1 <= first_x2 or second_x1 <= first_x1 <= second_x2:
-                if first_y1 <= second_y1 <= first_y2 or second_y1 <= first_y1 <= second_y2:
-                    return True
-        return False
+    def check_controls(self, event: pygame.event.EventType):
+        if pygame.key.get_pressed()[pygame.K_LEFT]:
+            self.vel_x = -self.velocity
+            self.vel_y = 0
+        elif pygame.key.get_pressed()[pygame.K_RIGHT]:
+            self.vel_x = self.velocity
+            self.vel_y = 0
+        elif pygame.key.get_pressed()[pygame.K_UP]:
+            self.vel_y = -self.velocity
+            self.vel_x = 0
+        elif pygame.key.get_pressed()[pygame.K_DOWN]:
+            self.vel_y = self.velocity
+            self.vel_x = 0
+        else:
+            self.vel_x = 0
+            self.vel_y = 0
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+            if len(self.bullets.spritedict) < 2:
+                new_bullet = Bullet(self)
+                self.groups()[0].add(new_bullet)
+                self.bullets.add(new_bullet)
 
 
 class Block(pygame.sprite.Sprite):
-    def __init__(self, x, y, cell_size):
-        super().__init__(ALL_SPRITES)
-        self.x, self.y = x, y
-        self.cell_size = cell_size
-        self.durability = 3
-
-    def get_rect(self, true_coords=False):
-        if true_coords:
-            return self.x, self.y, self.x + self.cell_size, self.y + self.cell_size
-        else:
-            return int(self.x), int(self.y), self.cell_size, self.cell_size
+    """
+    TODO: надо проработать массив структуры стены. В оригинале был 4 * 4, думаю, лучше будет сделать так же.
+        Также, надо придумать, как хранить структуру стен в txt файле.
+    """
+    def __init__(self, x, y, cell_size, *groups):
+        super().__init__(*groups)
+        self.rect = pygame.Rect(x, y, cell_size, cell_size)
+        self.structure = None  # Массив, чтобы придать форму блоку, пока что None, поэтому все блоки квадратные
 
 
 class BrickWall(Block):
     def __init__(self, x, y, cell_size):
         super().__init__(x, y, cell_size)
-        self.image = scale(load_image('BrickWall.png'), (self.cell_size, self.cell_size))
-        self.rect = self.image.get_rect()
-        self.rect.x = x
-        self.rect.y = y
-        self.durability = 5
+        self.image = pygame.Surface((cell_size, cell_size), pygame.SRCALPHA)
+        self.image.fill((136, 69, 53))
+        self.mask = pygame.mask.from_surface(self.image)
+
+class StrongBrickWall(Block):
+    def __init__(self, x, y, cell_size):
+        super().__init__(x, y, cell_size)
+        self.image = pygame.Surface((cell_size, cell_size), pygame.SRCALPHA)
+        self.image.fill((95, 95, 95))
+        self.mask = pygame.mask.from_surface(self.image)
+
+class WaterWall(Block):
+    def __init__(self, x, y, cell_size):
+        super().__init__(x, y, cell_size)
+        self.image = pygame.Surface((cell_size, cell_size), pygame.SRCALPHA)
+        self.image.fill((0, 0, 255))
+        self.mask = pygame.mask.from_surface(self.image)
 
 
-class ProjectileBasic(pygame.sprite.Sprite):
-    def __init__(self, x, y, direction, player):
-        super().__init__(ALL_SPRITES)
-        self.player = player
-        self.damage = 1
-        # Снаряд проходит сквозь N объектов и дамажит каждый перед исчезновением
-        self.piercing = 1
-        # Не допускаем дамажить 1 объект 2 раза
-        self.ignored_blocks = set()
-        self.x = x
-        self.y = y
-        self.vector_x = None
-        self.vector_y = None
-        self.direction = direction
-        self.caliber = int(CELL_SIZE // 6)
-        #  Зона поражения в клетках
-        self.area_of_effect = 1
-        self.velocity = 100
-        self.image = scale(load_image(F'projectile_{self.direction}.png'),
-                           (self.player.cell_size // 6, self.player.cell_size // 6))
-        self.rect = self.image.get_rect()
-        self.rect.x = x - self.rect.width // 2
-        self.rect.y = y - self.rect.height // 2
+class Bullet(pygame.sprite.Sprite):
+    def __init__(self, owner: Tank, *groups):
+        super().__init__(*groups)
+        self.owner = owner
+        self.rect = pygame.Rect(0, 0, 20, 20)
+        if owner.facing == LEFT:
+            self.rect.center = owner.rect.midleft
+            self.velocity_x, self.velocity_y = -60, 0
+        elif owner.facing == RIGHT:
+            self.rect.center = owner.rect.midright
+            self.velocity_x, self.velocity_y = 60, 0
+        elif owner.facing == DOWN:
+            self.rect.center = owner.rect.midbottom
+            self.velocity_x, self.velocity_y = 0, 60
+        else:
+            self.rect.center = owner.rect.midtop
+            self.velocity_x, self.velocity_y = 0, -60
+        self.image = pygame.Surface((20, 20), pygame.SRCALPHA)
+        pygame.draw.circle(self.image, (0, 255, 0), (10, 10), 10)
+        self.mask = pygame.mask.from_surface(self.image)
 
-    def move(self):
-        self.rect.x += self.velocity * FPS / 1000 * -self.vector_x
-        self.rect.y += self.velocity * FPS / 1000 * -self.vector_y
-        if self.rect.x not in range(-40, PLAYGROUND_WIDTH + 40) or \
-                self.rect.y not in range(-40, PLAYGROUND_WIDTH + 40):
-            self.remove()
-        if self.check_intersections(self.rect.x, self.rect.y, self.player.game.wall_list):
-            if self.piercing <= 0:
-                self.remove()
+    def update(self, *args):
+        self.rect.centerx += self.velocity_x / FPS
+        self.rect.centery += self.velocity_y / FPS
+        collide_with = get_collided_by_mask(self, self.owner.groups()[0])
+        if collide_with:
+            print(collide_with)
+            for sp in collide_with:
+                if not isinstance(sp, StrongBrickWall) and not isinstance(sp, WaterWall):
+                    self.owner.groups()[0].remove(sp)
+            if isinstance(sp, WaterWall):
+                pass
+            else:
+                self.terminate()
+        if self.rect.bottom < 0 or self.rect.top > PLAYGROUND_WIDTH:
+            self.terminate()
+        elif self.rect.right < 0 or self.rect.left > PLAYGROUND_WIDTH:
+            self.terminate()
 
-    def remove(self):
-        self.player.fired_projectiles.remove(self)
-        ALL_SPRITES.remove(self)
+    def terminate(self):
+        self.remove(*self.groups())
+        del self
 
-    def set_vector(self, end_pos):
-        array = np.array(end_pos)
-        self.vector_x, self.vector_y = array / np.linalg.norm(array)
 
-    def check_intersections(self, x, y, objects_list: list):
-        first_x1, first_y1, first_x2, first_y2 = x, y, x + self.rect.width, y + self.rect.height
-        for obj in objects_list:
-            if obj not in self.ignored_blocks:
-                second_x1, second_y1, second_x2, second_y2 = obj.get_rect(true_coords=True)
-                if first_x1 <= second_x1 <= first_x2 or second_x1 <= first_x1 <= second_x2:
-                    if first_y1 <= second_y1 <= first_y2 or second_y1 <= first_y1 <= second_y2:
-                        obj.durability -= 1
-                        self.ignored_blocks.add(obj)
-                        self.piercing -= 1
-                        if obj.durability <= 0:
-                            self.player.game.wall_list.remove(obj)
-                            ALL_SPRITES.remove(obj)
-                        return True
-        return False
+def read_map(filename: str):
+    with open(filename) as file:
+        res = [[int(i) for i in line.strip()] for line in file.readlines()]
+        return np.array(res, dtype=int, ndmin=1)
+
+
+def get_collided_by_mask(sprite_1: pygame.sprite.Sprite, group: pygame.sprite.Group):
+    collided = []
+    for sprite_2 in group.spritedict.keys():
+        if pygame.sprite.collide_mask(sprite_1, sprite_2) and sprite_1 is not sprite_2 and sprite_2:
+            #if isinstance(sprite_1, Bullet) and sprite_1.owner is sprite_2:
+            #    continue
+            collided.append(sprite_2)
+    return collided
 
 
 if __name__ == '__main__':
