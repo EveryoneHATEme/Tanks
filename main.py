@@ -1,5 +1,8 @@
 import pygame
 import numpy as np
+import os
+import time
+from itertools import cycle
 
 
 WINDOW_SIZE = (1000, 700)
@@ -9,17 +12,29 @@ BUTTONS = {UP, DOWN, LEFT, RIGHT, SHOOT}
 FPS = 30
 
 
+def load_image(name, size, color_key=None):
+    fullname = os.path.join('data/images/', name + '.png')
+    image = pygame.transform.scale(pygame.image.load(fullname), size)
+    if color_key is not None:
+        if color_key == -1:
+            color_key = image.get_at((0, 0))
+        image.set_colorkey(color_key)
+    else:
+        image = image.convert_alpha()
+    return image
+
+
 class Game:
     def __init__(self):
+        pygame.init()
+        self.screen = pygame.display.set_mode(WINDOW_SIZE)
         self.map = read_map('map1.txt').T  # загружаем карту из txt файла, возможно будем хранить по-другому
         self.cell_size = PLAYGROUND_WIDTH // self.map.shape[1]
         self.sprites = pygame.sprite.Group()
         self.player = Player(0, 0, self.cell_size * 2 - 10, 30, self.sprites)
-        self.init_map()
-        pygame.init()
-        self.screen = pygame.display.set_mode(WINDOW_SIZE)
-        self.run = False
         self.sprites.add(self.player)
+        self.init_map()
+        self.run = False
 
     def main_loop(self):
         self.run = True
@@ -71,6 +86,9 @@ class Tank(pygame.sprite.Sprite):
         self.image = pygame.Surface((cell_size, cell_size))
         self.facing = UP
         self.bullets = pygame.sprite.Group()
+        self.animation = None
+        self.angle = 0
+        self.stay = True
 
     def update(self, *args):
         self.rect.y += self.vel_y / FPS
@@ -78,23 +96,35 @@ class Tank(pygame.sprite.Sprite):
         if collided_count > 1:
             self.rect.y -= self.vel_y / FPS
         self.rect.x += self.vel_x / FPS
+        self.stay = False
         if len(pygame.sprite.spritecollide(self, self.groups()[0], False)) > 1:
             self.rect.x -= self.vel_x / FPS
         if self.vel_x > 0:
             self.facing = RIGHT
+            self.angle = 270
         elif self.vel_x < 0:
             self.facing = LEFT
+            self.angle = 90
         elif self.vel_y > 0:
             self.facing = DOWN
+            self.angle = 180
         elif self.vel_y < 0:
             self.facing = UP
+            self.angle = 0
+        else:
+            self.stay = True
+        if self.animation and not self.stay:
+            self.image = next(self.animation)
+            self.image = pygame.transform.rotate(self.image, self.angle)
         self.bullets.update()
 
 
 class Player(Tank):
     def __init__(self, x, y, cell_size, velocity, group):
         super().__init__(x, y, cell_size, velocity, group)
-        self.image.fill((64, 255, 64))
+        self.animation = cycle((load_image('tier1_tank_yellow', (cell_size, cell_size), -1),
+                               load_image('tier1_tank_yellow_2', (cell_size, cell_size), -1)))
+        self.image = next(self.animation)
 
     def check_controls(self, event: pygame.event.EventType):
         if pygame.key.get_pressed()[pygame.K_LEFT]:
@@ -133,23 +163,31 @@ class Block(pygame.sprite.Sprite):
 class BrickWall(Block):
     def __init__(self, x, y, cell_size):
         super().__init__(x, y, cell_size)
-        self.image = pygame.Surface((cell_size, cell_size), pygame.SRCALPHA)
-        self.image.fill((136, 69, 53))
+        self.image = load_image('brick_wall', (cell_size, cell_size))
         self.mask = pygame.mask.from_surface(self.image)
+
 
 class StrongBrickWall(Block):
     def __init__(self, x, y, cell_size):
         super().__init__(x, y, cell_size)
-        self.image = pygame.Surface((cell_size, cell_size), pygame.SRCALPHA)
-        self.image.fill((95, 95, 95))
+        self.image = load_image('strong_brick_wall', (cell_size, cell_size))
         self.mask = pygame.mask.from_surface(self.image)
+
 
 class WaterWall(Block):
     def __init__(self, x, y, cell_size):
         super().__init__(x, y, cell_size)
-        self.image = pygame.Surface((cell_size, cell_size), pygame.SRCALPHA)
-        self.image.fill((0, 0, 255))
+        self.animation = cycle((load_image('water_wall', (cell_size, cell_size)),
+                                load_image('water_wall_2', (cell_size, cell_size)),
+                                load_image('water_wall_3', (cell_size, cell_size))))
+        self.image = next(self.animation)
         self.mask = pygame.mask.from_surface(self.image)
+        self.time = time.time()
+
+    def update(self, *args):
+        if (time.time() - self.time) > 0.4:
+            self.time = time.time()
+            self.image = next(self.animation)
 
 
 class Bullet(pygame.sprite.Sprite):
@@ -178,13 +216,11 @@ class Bullet(pygame.sprite.Sprite):
         self.rect.centery += self.velocity_y / FPS
         collide_with = get_collided_by_mask(self, self.owner.groups()[0])
         if collide_with:
-            print(collide_with)
             for sp in collide_with:
                 if not isinstance(sp, StrongBrickWall) and not isinstance(sp, WaterWall):
                     self.owner.groups()[0].remove(sp)
-            if isinstance(sp, WaterWall):
-                pass
-            else:
+                if isinstance(sp, WaterWall):
+                    continue
                 self.terminate()
         if self.rect.bottom < 0 or self.rect.top > PLAYGROUND_WIDTH:
             self.terminate()
@@ -206,8 +242,8 @@ def get_collided_by_mask(sprite_1: pygame.sprite.Sprite, group: pygame.sprite.Gr
     collided = []
     for sprite_2 in group.spritedict.keys():
         if pygame.sprite.collide_mask(sprite_1, sprite_2) and sprite_1 is not sprite_2 and sprite_2:
-            #if isinstance(sprite_1, Bullet) and sprite_1.owner is sprite_2:
-            #    continue
+            if isinstance(sprite_1, Bullet) and sprite_1.owner is sprite_2:
+                continue
             collided.append(sprite_2)
     return collided
 
