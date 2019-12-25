@@ -207,8 +207,15 @@ class Bullet(pygame.sprite.Sprite):
         else:
             self.rect.center = owner.rect.midtop
             self.velocity_x, self.velocity_y = 0, -60
-        self.image = pygame.Surface((20, 20), pygame.SRCALPHA)
-        pygame.draw.circle(self.image, (0, 255, 0), (10, 10), 10)
+
+        self.image = self.image = load_image('bullet', (17, 17))
+        if self.owner.facing == RIGHT:
+            self.image = pygame.transform.rotate(self.image, -90)
+        if self.owner.facing == LEFT:
+            self.image = pygame.transform.rotate(self.image, 90)
+        if self.owner.facing == DOWN:
+            self.image = pygame.transform.rotate(self.image, 180)
+        # self.image = pygame.transform.rotate(self.image, 90)
         self.mask = pygame.mask.from_surface(self.image)
 
     def update(self, *args):
