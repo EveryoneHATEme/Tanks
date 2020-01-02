@@ -1,6 +1,6 @@
 import pygame
 import numpy as np
-from random import choice, randint
+from random import shuffle
 
 WINDOW_SIZE = (1000, 700)
 PLAYGROUND_WIDTH = 700
@@ -139,49 +139,71 @@ class Enemy(Tank):
         self.mask = pygame.mask.from_surface(self.image)
 
     def update(self, *args):
-        if self.rect.x % self.cell_size in range(2) and \
-                self.rect.y % self.cell_size in range(2) and randint(0, 7) == 0:
-            self.change_direction()
         self.rect.y += self.vel_y / FPS
         collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
-        if collided_count > 1 or not (0 <= self.rect.y <= PLAYGROUND_WIDTH - self.rect.height):
+        if collided_count > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
             self.rect.y -= self.vel_y / FPS
-            if (self.rect.x % self.cell_size not in range(2) or
-                    self.rect.y % self.cell_size not in range(2)) and randint(0, 3) == 0:
-                self.change_direction(invert=True)
-                print('invert')
-            else:
-                self.change_direction(rotate=choice([-1, 1]))
-                print('rotate')
+            self.choose_new_direction()
         self.rect.x += self.vel_x / FPS
         collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
-        if collided_count > 1 or not (0 <= self.rect.x <= PLAYGROUND_WIDTH - self.rect.width):
+        if collided_count > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
             self.rect.x -= self.vel_x / FPS
-            if (self.rect.x % self.cell_size not in range(2) or
-                    self.rect.y % self.cell_size not in range(2)) and randint(0, 3) == 0:
-                self.change_direction(invert=True)
-                print('invert')
-            else:
-                self.change_direction(rotate=choice([-1, 1]))
-                print('rotate')
+            self.choose_new_direction()
 
-    def change_direction(self, invert=False, rotate=0):
-        if invert:
-            self.vel_x = -self.vel_x
-            self.vel_y = -self.vel_y
-        elif rotate:
-            if self.vel_x == self.velocity:
-                self.vel_x, self.vel_y = 0, self.velocity * rotate
-            elif self.vel_x == -self.velocity:
-                self.vel_x, self.vel_y = 0, -self.velocity * rotate
-            elif self.vel_y == self.velocity:
-                self.vel_x, self.vel_y = -self.velocity * rotate, 0
-            elif self.vel_y == -self.velocity:
-                self.vel_x, self.vel_y = self.velocity * rotate, 0
-        else:
-            self.vel_x = self.velocity * randint(-1, 1)
-            if self.vel_x == 0:
-                self.vel_y = choice([-self.velocity, self.velocity])
+    def choose_new_direction(self):
+        directions = [UP, RIGHT, DOWN, LEFT]
+
+        inverse_direction = directions[(directions.index(self.facing) + 2) % 4]
+        shuffle(directions)
+
+        new_direction = None
+
+        for direction in directions:
+            if direction == UP:
+                new_sprite = pygame.sprite.Sprite()
+                new_sprite.rect = self.rect.move(0, -self.velocity / FPS)
+                if len(pygame.sprite.spritecollide(new_sprite, self.groups()[0], False)) == 1\
+                        and new_sprite.rect.top >= 0:
+                    new_direction = direction
+                    del new_sprite
+                    break
+            elif direction == RIGHT:
+                new_sprite = pygame.sprite.Sprite()
+                new_sprite.rect = self.rect.move(self.velocity / FPS, 0)
+                if len(pygame.sprite.spritecollide(new_sprite, self.groups()[0], False)) == 1\
+                        and new_sprite.rect.right <= PLAYGROUND_WIDTH:
+                    new_direction = direction
+                    del new_sprite
+                    break
+            elif direction == DOWN:
+                new_sprite = pygame.sprite.Sprite()
+                new_sprite.rect = self.rect.move(0, self.velocity / FPS)
+                if len(pygame.sprite.spritecollide(new_sprite, self.groups()[0], False)) == 1\
+                        and new_sprite.rect.bottom <= PLAYGROUND_WIDTH:
+                    new_direction = direction
+                    del new_sprite
+                    break
+            elif direction == LEFT:
+                new_sprite = pygame.sprite.Sprite()
+                new_sprite.rect = self.rect.move(-self.velocity / FPS, 0)
+                if len(pygame.sprite.spritecollide(new_sprite, self.groups()[0], False)) == 1\
+                        and new_sprite.rect.bottom >= 0:
+                    new_direction = direction
+                    del new_sprite
+                    break
+
+        if new_direction is None:
+            new_direction = inverse_direction
+
+        if new_direction == UP:
+            self.vel_x, self.vel_y = 0, -self.velocity
+        elif new_direction == DOWN:
+            self.vel_x, self.vel_y = 0, self.velocity
+        elif new_direction == LEFT:
+            self.vel_x, self.vel_y = -self.velocity, 0
+        elif new_direction == RIGHT:
+            self.vel_x, self.vel_y = self.velocity, 0
+
 
     def update_path_map(self):
         self.path_map = np.zeros((self.map.shape[0] - 1, self.map.shape[1] - 1), dtype=int)
