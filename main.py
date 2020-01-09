@@ -27,16 +27,18 @@ def load_image(name, size, color_key=None):
 class Game:
     def __init__(self):
         pygame.init()
-        self.map = self.read_map('map1.txt').T  # загружаем карту из txt файла, возможно будем хранить по-другому
+        self.map = read_map('map1.txt').T  # загружаем карту из txt файла, возможно будем хранить по-другому
         self.cell_size = PLAYGROUND_WIDTH // self.map.shape[1]
         self.sprites = pygame.sprite.Group()
         self.foreground_sprites = pygame.sprite.Group()
-        self.player = Player(0, 0, self.cell_size * 2 - 10, 30, self.sprites)
-        self.init_map()
+        self.player = Player(0, 0, self.cell_size * 2 - 10, 60, self.sprites)
         self.screen = pygame.display.set_mode(WINDOW_SIZE)
+        self.init_map()
         self.enemy_1 = Enemy(0, 0, self.cell_size * 2 - 10, 30, self.map, self.sprites)
-        self.enemy_2 = Enemy(PLAYGROUND_WIDTH // 2 - self.cell_size // 2, 0, self.cell_size * 2 - 10, 30, self.map, self.sprites)
+        self.enemy_2 = Enemy(PLAYGROUND_WIDTH // 2 - self.cell_size // 2, 0, self.cell_size * 2 - 10,
+                             30, self.map, self.sprites)
         self.run = False
+        self.clock = pygame.time.Clock()
         self.sprites.add(self.player)
 
     def main_loop(self):
@@ -85,21 +87,6 @@ class Game:
                     self.sprites.add(IceWall(i * self.cell_size, j * self.cell_size, self.cell_size))
                 elif self.map[i, j] == 9:
                     self.player.rect.topleft = (i * self.cell_size, j * self.cell_size)
-
-    def read_map(self, filename: str):
-        with open(filename) as file:
-            res = []
-            content = file.readlines()
-            for row in range(len(content)):
-                line = []
-                for col in range(len(content)):
-                    if content[row][col] == '9':
-                        Player(col, row, 0, 0, self.sprites, self.players)
-                        line.append(0)
-                    else:
-                        line.append(int(content[row][col]))
-                res.append(line)
-            return np.array(res, dtype=int, ndmin=1)
 
 
 class Tank(pygame.sprite.Sprite):
@@ -366,7 +353,6 @@ class Bullet(pygame.sprite.Sprite):
             for sp in collide_with:
                 if isinstance(sp, StrongBrickWall):
                     self.terminate()
-                    sp.terminate()
                 elif isinstance(sp, WaterWall):
                     continue
                 elif isinstance(sp, IceWall):
@@ -393,6 +379,12 @@ def get_collided_by_mask(sprite_1: pygame.sprite.Sprite, group: pygame.sprite.Gr
                 continue
             collided.append(sprite_2)
     return collided
+
+
+def read_map(filename: str):
+    with open(filename) as file:
+        res = [[int(i) for i in line.strip()] for line in file.readlines()]
+        return np.array(res, dtype=int, ndmin=1)
 
 
 if __name__ == '__main__':
