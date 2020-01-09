@@ -1,6 +1,6 @@
 import pygame
 import numpy as np
-from random import shuffle
+from random import shuffle, randint
 
 WINDOW_SIZE = (1000, 700)
 PLAYGROUND_WIDTH = 700
@@ -35,9 +35,6 @@ class Game:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.run = False
-                if event.type == pygame.KEYDOWN and event.key == pygame.K_q:
-                    pass
-                    #self.enemy.update_path_map()
                 for player in self.players.sprites():
                     player.check_controls(event)
             self.sprites.update()
@@ -96,6 +93,7 @@ class Tank(pygame.sprite.Sprite):
         self.facing = UP
         self.bullets = pygame.sprite.Group()
         self.cell_size = cell_size
+        self.terminated = False
 
     def change_config(self, x, y, cell_size, velocity):
         self.rect = pygame.Rect(x, y, cell_size, cell_size)
@@ -104,23 +102,29 @@ class Tank(pygame.sprite.Sprite):
         self.cell_size = cell_size
 
     def update(self, *args):
-        self.rect.y += self.vel_y / FPS
-        collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
-        if collided_count > 1 or not (0 <= self.rect.y <= PLAYGROUND_WIDTH - self.rect.height):
-            self.rect.y -= self.vel_y / FPS
-        self.rect.x += self.vel_x / FPS
-        collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
-        if collided_count > 1 or not (0 <= self.rect.x <= PLAYGROUND_WIDTH - self.rect.width):
-            self.rect.x -= self.vel_x / FPS
-        if self.vel_x > 0:
-            self.facing = RIGHT
-        elif self.vel_x < 0:
-            self.facing = LEFT
-        elif self.vel_y > 0:
-            self.facing = DOWN
-        elif self.vel_y < 0:
-            self.facing = UP
-        self.bullets.update()
+        if not self.terminated:
+            self.rect.y += self.vel_y / FPS
+            collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
+            if collided_count > 1 or not (0 <= self.rect.y <= PLAYGROUND_WIDTH - self.rect.height):
+                self.rect.y -= self.vel_y / FPS
+            self.rect.x += self.vel_x / FPS
+            collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
+            if collided_count > 1 or not (0 <= self.rect.x <= PLAYGROUND_WIDTH - self.rect.width):
+                self.rect.x -= self.vel_x / FPS
+            if self.vel_x > 0:
+                self.facing = RIGHT
+            elif self.vel_x < 0:
+                self.facing = LEFT
+            elif self.vel_y > 0:
+                self.facing = DOWN
+            elif self.vel_y < 0:
+                self.facing = UP
+            self.bullets.update()
+
+    def terminate(self):
+        self.remove(*self.groups())
+        self.terminated = True
+        del self
 
 
 class Enemy(Tank):
@@ -139,16 +143,21 @@ class Enemy(Tank):
         self.mask = pygame.mask.from_surface(self.image)
 
     def update(self, *args):
-        self.rect.y += self.vel_y / FPS
-        collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
-        if collided_count > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
-            self.rect.y -= self.vel_y / FPS
-            self.choose_new_direction()
-        self.rect.x += self.vel_x / FPS
-        collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
-        if collided_count > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
-            self.rect.x -= self.vel_x / FPS
-            self.choose_new_direction()
+        if not self.terminated:
+            self.rect.y += self.vel_y / FPS
+            collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
+            if collided_count > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
+                self.rect.y -= self.vel_y / FPS
+                self.choose_new_direction()
+            self.rect.x += self.vel_x / FPS
+            collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
+            if collided_count > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
+                self.rect.x -= self.vel_x / FPS
+                self.choose_new_direction()
+            if len(self.bullets) == 0 and randint(0, 3) == 0:
+                new_bullet = Bullet(self)
+                self.groups()[0].add(new_bullet)
+                self.bullets.add(new_bullet)
 
     def choose_new_direction(self):
         directions = [UP, RIGHT, DOWN, LEFT]
@@ -203,56 +212,7 @@ class Enemy(Tank):
             self.vel_x, self.vel_y = -self.velocity, 0
         elif new_direction == RIGHT:
             self.vel_x, self.vel_y = self.velocity, 0
-
-
-    def update_path_map(self):
-        self.path_map = np.zeros((self.map.shape[0] - 1, self.map.shape[1] - 1), dtype=int)
-
-        for i in range(self.map.shape[0] - 1):
-            for j in range(self.map.shape[1] - 1):
-                if [self.map[i, j], self.map[i, j + 1], self.map[i + 1, j], self.map[i + 1, j + 1]] == [0] * 4:
-                    self.path_map[i, j] = 0
-                else:
-                    self.path_map[i, j] = -1
-
-        player_x, player_y = 0, 0
-
-        for sprite in self.groups()[0]:
-            if isinstance(sprite, Enemy):
-                self.path_map[sprite.rect.left // self.path_map.shape[0],
-                              sprite.rect.top // self.path_map.shape[1]] = -1
-            if isinstance(sprite, Player):
-                player_x = sprite.rect.left // (self.cell_size + 10) * 2
-                player_y = sprite.rect.top // (self.cell_size + 10) * 2
-
-        self.initialize_map(self.rect.left // self.path_map.shape[0], self.rect.top // self.path_map.shape[1])
-
-        if self.path_map[player_x, player_y] != 0:
-            self.path = []
-            x, y = player_x, player_y
-            while self.path_map[x, y] != 1:
-                if x > 0 and self.path_map[x - 1, y] == self.path_map[x, y] - 1:
-                    x -= 1
-                elif x + 1 < self.path_map.shape[0] and self.path_map[x + 1, y] == self.path_map[x, y] - 1:
-                    x += 1
-                elif y > 0 and self.path_map[x, y - 1] == self.path_map[x, y] - 1:
-                    y -= 1
-                elif y + 1 < self.path_map.shape[1] and self.path_map[x, y + 1] == self.path_map[x, y] - 1:
-                    y += 1
-                self.path.append((x, y))
-            self.path = self.path[::-1]
-            del self.path[0]
-
-    def initialize_map(self, x, y, d=1):
-        self.path_map[x, y] = d
-        if x > 0 and (self.path_map[x - 1, y] == 0 or self.path_map[x - 1, y] > d):
-            self.initialize_map(x - 1, y, d + 1)
-        if x + 1 < self.path_map.shape[0] and (self.path_map[x + 1, y] == 0 or self.path_map[x + 1, y] > d):
-            self.initialize_map(x + 1, y, d + 1)
-        if y > 0 and (self.path_map[x, y - 1] == 0 or self.path_map[x, y - 1] > d):
-            self.initialize_map(x, y - 1, d + 1)
-        if y + 1 < self.path_map.shape[1] and (self.path_map[x, y + 1] == 0 or self.path_map[x, y + 1] > d):
-            self.initialize_map(x, y + 1, d + 1)
+        self.facing = new_direction
 
 
 class Player(Tank):
@@ -298,6 +258,10 @@ class Block(pygame.sprite.Sprite):
         self.rect = pygame.Rect(x, y, cell_size, cell_size)
         self.structure = None  # Массив, чтобы придать форму блоку, пока что None, поэтому все блоки квадратные
 
+    def terminate(self):
+        self.remove(*self.groups())
+        del self
+
 
 class BrickWall(Block):
     def __init__(self, x, y, cell_size):
@@ -334,8 +298,8 @@ class Bullet(pygame.sprite.Sprite):
         collide_with = pygame.sprite.spritecollide(self, self.owner.groups()[0], False)
         if collide_with:
             for sprite in collide_with:
-                if sprite is not self.owner and sprite is not self:
-                    self.owner.groups()[0].remove(sprite)
+                if type(self.owner) != type(sprite) and sprite is not self:
+                    sprite.terminate()
                     self.terminate()
                     break
         if self.rect.bottom < 0 or self.rect.top > PLAYGROUND_WIDTH:
