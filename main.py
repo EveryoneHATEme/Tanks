@@ -31,6 +31,7 @@ class Game:
         self.map = read_map('map1.txt').T  # загружаем карту из txt файла, возможно будем хранить по-другому
         self.cell_size = PLAYGROUND_WIDTH // self.map.shape[1]
         self.sprites = pygame.sprite.Group()
+        self.foreground_sprites = pygame.sprite.Group()
         self.player = Player(0, 0, self.cell_size * 2 - 10, 30, self.sprites)
         self.sprites.add(self.player)
         self.init_map()
@@ -52,7 +53,12 @@ class Game:
         """
         canvas = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
         canvas.fill((0, 0, 0))
+        self.foreground_sprites = pygame.sprite.Group()
+        for sprite in self.sprites:
+            if isinstance(sprite, (Player, Bullet)):
+                self.foreground_sprites.add(sprite)
         self.sprites.draw(canvas)
+        self.foreground_sprites.draw(canvas)
         self.screen.fill((0, 0, 0))
         sc_width, sc_height = self.screen.get_size()
         self.screen.blit(canvas, (sc_width // 2 - canvas.get_width() // 2,
@@ -72,6 +78,8 @@ class Game:
                     self.sprites.add(StrongBrickWall(i * self.cell_size, j * self.cell_size, self.cell_size))
                 elif self.map[i, j] == 3:
                     self.sprites.add(WaterWall(i * self.cell_size, j * self.cell_size, self.cell_size))
+                elif self.map[i, j] == 4:
+                    self.sprites.add(IceWall(i * self.cell_size, j * self.cell_size, self.cell_size))
                 elif self.map[i, j] == 9:
                     self.player.rect.topleft = (i * self.cell_size, j * self.cell_size)
 
@@ -92,12 +100,13 @@ class Tank(pygame.sprite.Sprite):
 
     def update(self, *args):
         self.rect.y += self.vel_y / FPS
-        collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
-        if collided_count > 1:
+        collides = pygame.sprite.spritecollide(self, self.groups()[0], False)
+        if len(collides) > (1 + list(isinstance(x, IceWall) for x in collides).count(True)):
             self.rect.y -= self.vel_y / FPS
         self.rect.x += self.vel_x / FPS
         self.stay = False
-        if len(pygame.sprite.spritecollide(self, self.groups()[0], False)) > 1:
+        collides = pygame.sprite.spritecollide(self, self.groups()[0], False)
+        if len(collides) > (1 + list(isinstance(x, IceWall) for x in collides).count(True)):
             self.rect.x -= self.vel_x / FPS
         if self.vel_x > 0:
             self.facing = RIGHT
@@ -150,14 +159,9 @@ class Player(Tank):
 
 
 class Block(pygame.sprite.Sprite):
-    """
-    TODO: надо проработать массив структуры стены. В оригинале был 4 * 4, думаю, лучше будет сделать так же.
-        Также, надо придумать, как хранить структуру стен в txt файле.
-    """
     def __init__(self, x, y, cell_size, *groups):
         super().__init__(*groups)
         self.rect = pygame.Rect(x, y, cell_size, cell_size)
-        self.structure = None  # Массив, чтобы придать форму блоку, пока что None, поэтому все блоки квадратные
 
 
 class BrickWall(Block):
@@ -190,6 +194,13 @@ class WaterWall(Block):
             self.image = next(self.animation)
 
 
+class IceWall(Block):
+    def __init__(self, x, y, cell_size):
+        super().__init__(x, y, cell_size)
+        self.image = load_image('ice_wall', (cell_size, cell_size))
+        self.mask = pygame.mask.from_surface(self.image)
+
+
 class Bullet(pygame.sprite.Sprite):
     def __init__(self, owner: Tank, *groups):
         super().__init__(*groups)
@@ -208,7 +219,7 @@ class Bullet(pygame.sprite.Sprite):
             self.rect.center = owner.rect.midtop
             self.velocity_x, self.velocity_y = 0, -60
 
-        self.image = self.image = load_image('bullet', (17, 17))
+        self.image = load_image('bullet', (17, 17), (0, 0, 0))
         if self.owner.facing == RIGHT:
             self.image = pygame.transform.rotate(self.image, -90)
         if self.owner.facing == LEFT:
@@ -224,11 +235,15 @@ class Bullet(pygame.sprite.Sprite):
         collide_with = get_collided_by_mask(self, self.owner.groups()[0])
         if collide_with:
             for sp in collide_with:
-                if not isinstance(sp, StrongBrickWall) and not isinstance(sp, WaterWall):
-                    self.owner.groups()[0].remove(sp)
-                if isinstance(sp, WaterWall):
+                if isinstance(sp, StrongBrickWall):
+                    self.terminate()
+                elif isinstance(sp, WaterWall):
                     continue
-                self.terminate()
+                elif isinstance(sp, IceWall):
+                    continue
+                elif isinstance(sp, BrickWall):
+                    self.owner.groups()[0].remove(sp)
+                    self.terminate()
         if self.rect.bottom < 0 or self.rect.top > PLAYGROUND_WIDTH:
             self.terminate()
         elif self.rect.right < 0 or self.rect.left > PLAYGROUND_WIDTH:
