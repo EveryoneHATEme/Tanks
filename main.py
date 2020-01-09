@@ -1,47 +1,53 @@
 import pygame
 import numpy as np
 from random import shuffle, randint
+import os
+import time
+from itertools import cycle
 
 WINDOW_SIZE = (1000, 700)
 PLAYGROUND_WIDTH = 700
 UP, DOWN, LEFT, RIGHT, SHOOT = pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT, pygame.K_SPACE
 BUTTONS = {UP, DOWN, LEFT, RIGHT, SHOOT}
 FPS = 30
-frames, seconds = 0, 0
-np.set_printoptions(linewidth=150)
+
+
+def load_image(name, size, color_key=None):
+    fullname = os.path.join('data/images/', name + '.png')
+    image = pygame.transform.scale(pygame.image.load(fullname), size)
+    if color_key is not None:
+        if color_key == -1:
+            color_key = image.get_at((0, 0))
+        image.set_colorkey(color_key)
+    else:
+        image = image.convert_alpha()
+    return image
 
 
 class Game:
     def __init__(self):
         pygame.init()
-        self.players = pygame.sprite.Group()
-        self.sprites = pygame.sprite.Group()
         self.map = self.read_map('map1.txt').T  # загружаем карту из txt файла, возможно будем хранить по-другому
         self.cell_size = PLAYGROUND_WIDTH // self.map.shape[1]
+        self.sprites = pygame.sprite.Group()
+        self.foreground_sprites = pygame.sprite.Group()
+        self.player = Player(0, 0, self.cell_size * 2 - 10, 30, self.sprites)
         self.init_map()
-        for player in self.players.sprites():
-            player.change_config(player.rect.x * self.cell_size, player.rect.y * self.cell_size,
-                                 self.cell_size * 2 - 10, 60)
         self.screen = pygame.display.set_mode(WINDOW_SIZE)
-        self.enemy = Enemy(0, 0, self.cell_size * 2 - 10, 30, self.map, self.sprites)
-        self.enemy = Enemy(PLAYGROUND_WIDTH // 2 - self.cell_size // 2, 0, self.cell_size * 2 - 10, 30, self.map, self.sprites)
+        self.enemy_1 = Enemy(0, 0, self.cell_size * 2 - 10, 30, self.map, self.sprites)
+        self.enemy_2 = Enemy(PLAYGROUND_WIDTH // 2 - self.cell_size // 2, 0, self.cell_size * 2 - 10, 30, self.map, self.sprites)
         self.run = False
-        self.clock = pygame.time.Clock()
+        self.sprites.add(self.player)
 
     def main_loop(self):
-        global frames, seconds
         self.run = True
         while self.run:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.run = False
-                for player in self.players.sprites():
-                    player.check_controls(event)
+                self.player.check_controls(event)
             self.sprites.update()
             self.clock.tick(FPS)
-            frames += 1
-            seconds += frames // FPS
-            frames %= FPS
             self.render()
 
     def render(self):
@@ -50,7 +56,12 @@ class Game:
         """
         canvas = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
         canvas.fill((0, 0, 0))
+        self.foreground_sprites = pygame.sprite.Group()
+        for sprite in self.sprites:
+            if isinstance(sprite, (Player, Bullet)):
+                self.foreground_sprites.add(sprite)
         self.sprites.draw(canvas)
+        self.foreground_sprites.draw(canvas)
         self.screen.fill((0, 0, 0))
         sc_width, sc_height = self.screen.get_size()
         self.screen.blit(canvas, (sc_width // 2 - canvas.get_width() // 2,
@@ -66,6 +77,14 @@ class Game:
             for j in range(PLAYGROUND_WIDTH // self.cell_size):
                 if self.map[i, j] == 1:
                     self.sprites.add(BrickWall(i * self.cell_size, j * self.cell_size, self.cell_size))
+                elif self.map[i, j] == 2:
+                    self.sprites.add(StrongBrickWall(i * self.cell_size, j * self.cell_size, self.cell_size))
+                elif self.map[i, j] == 3:
+                    self.sprites.add(WaterWall(i * self.cell_size, j * self.cell_size, self.cell_size))
+                elif self.map[i, j] == 4:
+                    self.sprites.add(IceWall(i * self.cell_size, j * self.cell_size, self.cell_size))
+                elif self.map[i, j] == 9:
+                    self.player.rect.topleft = (i * self.cell_size, j * self.cell_size)
 
     def read_map(self, filename: str):
         with open(filename) as file:
@@ -92,6 +111,9 @@ class Tank(pygame.sprite.Sprite):
         self.image = pygame.Surface((cell_size, cell_size))
         self.facing = UP
         self.bullets = pygame.sprite.Group()
+        self.animation = None
+        self.angle = 0
+        self.stay = True
         self.cell_size = cell_size
         self.terminated = False
 
@@ -104,21 +126,31 @@ class Tank(pygame.sprite.Sprite):
     def update(self, *args):
         if not self.terminated:
             self.rect.y += self.vel_y / FPS
-            collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
-            if collided_count > 1 or not (0 <= self.rect.y <= PLAYGROUND_WIDTH - self.rect.height):
+            collides = pygame.sprite.spritecollide(self, self.groups()[0], False)
+            if len(collides) > (1 + list(isinstance(x, IceWall) for x in collides).count(True)):
                 self.rect.y -= self.vel_y / FPS
             self.rect.x += self.vel_x / FPS
-            collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
-            if collided_count > 1 or not (0 <= self.rect.x <= PLAYGROUND_WIDTH - self.rect.width):
+            self.stay = False
+            collides = pygame.sprite.spritecollide(self, self.groups()[0], False)
+            if len(collides) > (1 + list(isinstance(x, IceWall) for x in collides).count(True)):
                 self.rect.x -= self.vel_x / FPS
             if self.vel_x > 0:
                 self.facing = RIGHT
+                self.angle = 270
             elif self.vel_x < 0:
                 self.facing = LEFT
+                self.angle = 90
             elif self.vel_y > 0:
                 self.facing = DOWN
+                self.angle = 180
             elif self.vel_y < 0:
                 self.facing = UP
+                self.angle = 0
+            else:
+                self.stay = True
+            if self.animation and not self.stay:
+                self.image = next(self.animation)
+                self.image = pygame.transform.rotate(self.image, self.angle)
             self.bullets.update()
 
     def terminate(self):
@@ -216,13 +248,17 @@ class Enemy(Tank):
 
 
 class Player(Tank):
-    def __init__(self, x, y, cell_size, velocity, *groups):
-        super().__init__(x, y, cell_size, velocity, *groups)
-        self.image.fill((64, 255, 64))
+    def __init__(self, x, y, cell_size, velocity, group):
+        super().__init__(x, y, cell_size, velocity, group)
+        self.animation = cycle((load_image('tier1_tank_yellow', (cell_size, cell_size), -1),
+                               load_image('tier1_tank_yellow_2', (cell_size, cell_size), -1)))
+        self.image = next(self.animation)
 
     def change_config(self, x, y, cell_size, velocity):
         super().change_config(x, y, cell_size, velocity)
-        self.image.fill((64, 255, 64))
+        self.animation = cycle((load_image('tier1_tank_yellow', (cell_size, cell_size), -1),
+                               load_image('tier1_tank_yellow_2', (cell_size, cell_size), -1)))
+        self.image = next(self.animation)
 
     def check_controls(self, event: pygame.event.EventType):
         if pygame.key.get_pressed()[pygame.K_LEFT]:
@@ -248,15 +284,9 @@ class Player(Tank):
 
 
 class Block(pygame.sprite.Sprite):
-    """
-    TODO: надо проработать массив структуры стены. В оригинале был 4 * 4, думаю, лучше будет сделать так же.
-        Также, надо придумать, как хранить структуру стен в txt файле.
-    """
-
     def __init__(self, x, y, cell_size, *groups):
         super().__init__(*groups)
         self.rect = pygame.Rect(x, y, cell_size, cell_size)
-        self.structure = None  # Массив, чтобы придать форму блоку, пока что None, поэтому все блоки квадратные
 
     def terminate(self):
         self.remove(*self.groups())
@@ -266,8 +296,37 @@ class Block(pygame.sprite.Sprite):
 class BrickWall(Block):
     def __init__(self, x, y, cell_size):
         super().__init__(x, y, cell_size)
-        self.image = pygame.Surface((cell_size, cell_size), pygame.SRCALPHA)
-        self.image.fill((136, 69, 53))
+        self.image = load_image('brick_wall', (cell_size, cell_size))
+        self.mask = pygame.mask.from_surface(self.image)
+
+
+class StrongBrickWall(Block):
+    def __init__(self, x, y, cell_size):
+        super().__init__(x, y, cell_size)
+        self.image = load_image('strong_brick_wall', (cell_size, cell_size))
+        self.mask = pygame.mask.from_surface(self.image)
+
+
+class WaterWall(Block):
+    def __init__(self, x, y, cell_size):
+        super().__init__(x, y, cell_size)
+        self.animation = cycle((load_image('water_wall', (cell_size, cell_size)),
+                                load_image('water_wall_2', (cell_size, cell_size)),
+                                load_image('water_wall_3', (cell_size, cell_size))))
+        self.image = next(self.animation)
+        self.mask = pygame.mask.from_surface(self.image)
+        self.time = time.time()
+
+    def update(self, *args):
+        if (time.time() - self.time) > 0.4:
+            self.time = time.time()
+            self.image = next(self.animation)
+
+
+class IceWall(Block):
+    def __init__(self, x, y, cell_size):
+        super().__init__(x, y, cell_size)
+        self.image = load_image('ice_wall', (cell_size, cell_size))
         self.mask = pygame.mask.from_surface(self.image)
 
 
@@ -288,20 +347,34 @@ class Bullet(pygame.sprite.Sprite):
         else:
             self.rect.center = owner.rect.midtop
             self.velocity_x, self.velocity_y = 0, -60
-        self.image = pygame.Surface((20, 20), pygame.SRCALPHA)
-        pygame.draw.circle(self.image, (0, 255, 0), (10, 10), 10)
+
+        self.image = load_image('bullet', (17, 17), (0, 0, 0))
+        if self.owner.facing == RIGHT:
+            self.image = pygame.transform.rotate(self.image, -90)
+        if self.owner.facing == LEFT:
+            self.image = pygame.transform.rotate(self.image, 90)
+        if self.owner.facing == DOWN:
+            self.image = pygame.transform.rotate(self.image, 180)
+        # self.image = pygame.transform.rotate(self.image, 90)
         self.mask = pygame.mask.from_surface(self.image)
 
     def update(self, *args):
         self.rect.centerx += self.velocity_x / FPS
         self.rect.centery += self.velocity_y / FPS
-        collide_with = pygame.sprite.spritecollide(self, self.owner.groups()[0], False)
+        collide_with = get_collided_by_mask(self, self.owner.groups()[0])
         if collide_with:
-            for sprite in collide_with:
-                if type(self.owner) != type(sprite) and sprite is not self:
-                    sprite.terminate()
+            for sp in collide_with:
+                if isinstance(sp, StrongBrickWall):
                     self.terminate()
-                    break
+                    sp.terminate()
+                elif isinstance(sp, WaterWall):
+                    continue
+                elif isinstance(sp, IceWall):
+                    continue
+                elif isinstance(sp, BrickWall):
+                    self.owner.groups()[0].remove(sp)
+                    self.terminate()
+                    sp.terminate()
         if self.rect.bottom < 0 or self.rect.top > PLAYGROUND_WIDTH:
             self.terminate()
         elif self.rect.right < 0 or self.rect.left > PLAYGROUND_WIDTH:
@@ -326,35 +399,3 @@ if __name__ == '__main__':
     game = Game()
     game.main_loop()
     pygame.quit()
-
-
-'''
-self.rect.y += self.vel_y / FPS
-        collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
-        if collided_count > 1 or not (0 <= self.rect.y <= PLAYGROUND_WIDTH - self.rect.height):
-            self.rect.y -= self.vel_y / FPS
-        self.rect.x += self.vel_x / FPS
-        collided_count = len(pygame.sprite.spritecollide(self, self.groups()[0], False))
-        if collided_count > 1 or not (0 <= self.rect.x <= PLAYGROUND_WIDTH - self.rect.width):
-            self.rect.x -= self.vel_x / FPS
-'''
-"""
-        if frames == 0:
-            self.update_path_map()
-            left = self.rect.left // self.cell_size
-            right = self.rect.right // self.cell_size
-            top = self.rect.top // self.cell_size
-            bottom = self.rect.bottom // self.cell_size
-            index = 0
-            #if (left, top) == self.path[0] and right == self.path[0][0] + 2 and bottom == self.path[0][1] + 2:
-            #    index += 1
-            self.vel_x, self.vel_y = 0, 0
-            if self.path[index][0] < left:
-                self.vel_x = -self.velocity
-            elif self.path[index][0] > left:
-                self.vel_x = self.velocity
-            elif self.path[index][1] < top:
-                self.vel_y = -self.velocity
-            elif self.path[index][1] > top:
-                self.vel_y = self.velocity
-"""
