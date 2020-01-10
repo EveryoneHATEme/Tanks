@@ -57,10 +57,10 @@ class Game:
         Отрисовываем все элементы на отдельной поверхности, чтобы можно было разместить игровое поле в середние окна.
         """
         canvas = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
-        canvas.fill((0, 0, 0))
+        canvas.fill((255, 255, 255))
         self.foreground_sprites = pygame.sprite.Group()
         for sprite in self.sprites:
-            if isinstance(sprite, (Player, Bullet)):
+            if isinstance(sprite, (Tank, Bullet)):
                 self.foreground_sprites.add(sprite)
         self.sprites.draw(canvas)
         self.foreground_sprites.draw(canvas)
@@ -149,7 +149,9 @@ class Tank(pygame.sprite.Sprite):
 class Enemy(Tank):
     def __init__(self, x, y, cell_size, velocity, level_map, *groups):
         super().__init__(x, y, cell_size, velocity, *groups)
-        self.image.fill((64, 64, 255))
+        self.animation = cycle((load_image('enemy_tier1_tank_yellow', (cell_size, cell_size), -1),
+                                load_image('enemy_tier1_tank_yellow_2', (cell_size, cell_size), -1)))
+        self.image = next(self.animation)
         self.map = level_map
         self.path_map = self.map.copy()
         self.path = []
@@ -158,8 +160,9 @@ class Enemy(Tank):
 
     def change_config(self, x, y, cell_size, velocity):
         super().change_config(x, y, cell_size, velocity)
-        self.image.fill((64, 64, 255))
-        self.mask = pygame.mask.from_surface(self.image)
+        self.animation = cycle((load_image('enemy_tier1_tank_yellow', (cell_size, cell_size), -1),
+                                load_image('enemy_tier1_tank_yellow_2', (cell_size, cell_size), -1)))
+        self.image = next(self.animation)
 
     def update(self, *args):
         if not self.terminated:
@@ -348,23 +351,36 @@ class Bullet(pygame.sprite.Sprite):
     def update(self, *args):
         self.rect.centerx += self.velocity_x / FPS
         self.rect.centery += self.velocity_y / FPS
-        collide_with = get_collided_by_mask(self, self.owner.groups()[0])
-        if collide_with:
-            for sp in collide_with:
-                if isinstance(sp, StrongBrickWall):
-                    self.terminate()
-                elif isinstance(sp, WaterWall):
-                    continue
-                elif isinstance(sp, IceWall):
-                    continue
-                elif isinstance(sp, BrickWall):
-                    self.owner.groups()[0].remove(sp)
-                    self.terminate()
-                    sp.terminate()
-        if self.rect.bottom < 0 or self.rect.top > PLAYGROUND_WIDTH:
-            self.terminate()
-        elif self.rect.right < 0 or self.rect.left > PLAYGROUND_WIDTH:
-            self.terminate()
+        try:
+            collide_with = get_collided_by_mask(self, self.owner.groups()[0])
+        except IndexError:
+            self.image = pygame.Surface((0, 0))
+            del self
+        else:
+            if collide_with:
+                for sp in collide_with:
+                    if self.owner is sp:
+                        continue
+                    elif isinstance(sp, StrongBrickWall):
+                        self.terminate()
+                    elif isinstance(sp, WaterWall):
+                        continue
+                    elif isinstance(sp, IceWall):
+                        continue
+                    elif isinstance(sp, BrickWall):
+                        self.owner.groups()[0].remove(sp)
+                        self.terminate()
+                        sp.terminate()
+                    elif isinstance(sp, Tank):
+                        if type(self.owner) != type(sp):
+                            sp.terminate()
+                            self.owner.groups()[0].remove(sp)
+                            self.terminate()
+                
+            if self.rect.bottom < 0 or self.rect.top > PLAYGROUND_WIDTH:
+                self.terminate()
+            elif self.rect.right < 0 or self.rect.left > PLAYGROUND_WIDTH:
+                self.terminate()
 
     def terminate(self):
         self.remove(*self.groups())
@@ -375,8 +391,6 @@ def get_collided_by_mask(sprite_1: pygame.sprite.Sprite, group: pygame.sprite.Gr
     collided = []
     for sprite_2 in group.sprites():
         if pygame.sprite.collide_mask(sprite_1, sprite_2) and sprite_1 is not sprite_2:
-            if isinstance(sprite_1, Bullet) and sprite_1.owner is sprite_2:
-                continue
             collided.append(sprite_2)
     return collided
 
