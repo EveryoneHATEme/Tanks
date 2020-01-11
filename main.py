@@ -44,7 +44,7 @@ class Game:
             self.iceblocks = pygame.sprite.Group()
             self.grass_blocks = pygame.sprite.Group()
             self.player = Player(PLAYGROUND_WIDTH // 13 * 4, PLAYGROUND_WIDTH // 13 * 12,
-                                 self.cell_size * 2 - 10, 60, self.players)
+                                 self.cell_size * 2 - 10, 90, self.players)
             self.screen = pygame.display.set_mode(WINDOW_SIZE)
             if self.fullscreen_mode:
                 pygame.display.set_mode(self.get_resolution(), pygame.FULLSCREEN)
@@ -283,12 +283,12 @@ class Enemy(Tank):
 
 class SimpleEnemy(Enemy):
     def __init__(self, x, y, cell_size, *groups):
-        super().__init__(x, y, cell_size, 60, *groups)
+        super().__init__(x, y, cell_size, 30, *groups)
 
 
 class QuickTank(Enemy):
     def __init__(self, x, y, cell_size, *groups):
-        super().__init__(x, y, cell_size, 120, *groups)
+        super().__init__(x, y, cell_size, 90, *groups)
         self.reward = 200
         self.animation = cycle((load_image('enemy_tier2_tank_yellow', (cell_size, cell_size), -1),
                                 load_image('enemy_tier2_tank_yellow_2', (cell_size, cell_size), -1)))
@@ -336,6 +336,13 @@ class Block(pygame.sprite.Sprite):
         super().__init__(*groups)
         self.rect = pygame.Rect(x, y, cell_size, cell_size)
 
+        self.explosion_animation = iter([load_image('explosion_animation_%d' % i, (cell_size, cell_size)) for i in range(7)])
+        #self.image = next(self.animation)
+        #self.mask = pygame.mask.from_surface(self.image)
+        #self.time = time.time()
+        self.is_under_fire_flag = False
+
+
     def is_under_fire(self, bullet):
         pass
 
@@ -349,10 +356,19 @@ class BrickWall(Block):
         super().__init__(x, y, cell_size)
         self.image = load_image('brick_wall', (cell_size, cell_size))
         self.mask = pygame.mask.from_surface(self.image)
+        self.start_exp_flag = False
 
     def is_under_fire(self, bullet):
+        self.is_under_fire_flag = True
         bullet.terminate()
-        self.terminate()
+
+    def update(self, *args):
+        if self.is_under_fire_flag:
+            next_image = next(self.explosion_animation, None)
+            if next_image is not None:
+                self.image = next_image
+            else:
+                self.terminate()
 
 
 class StrongBrickWall(Block):
@@ -426,6 +442,8 @@ class Bullet(pygame.sprite.Sprite):
         # self.image = pygame.transform.rotate(self.image, 90)
         self.mask = pygame.mask.from_surface(self.image)
 
+
+
     def update(self, *args):
         self.rect.centerx += self.velocity_x
         self.rect.centery += self.velocity_y
@@ -434,6 +452,7 @@ class Bullet(pygame.sprite.Sprite):
             collided = get_collided_by_mask(self, game.enemies)
             if collided:
                 self.owner.score += collided[0].reward
+                print(self.owner.score)
                 collided[0].terminate()
                 self.terminate()
                 return
