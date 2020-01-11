@@ -43,7 +43,8 @@ class Game:
             self.players = pygame.sprite.Group()
             self.iceblocks = pygame.sprite.Group()
             self.grass_blocks = pygame.sprite.Group()
-            self.player = Player(0, 0, self.cell_size * 2 - 10, 60, self.sprites)
+            self.player = Player(PLAYGROUND_WIDTH // 13 * 4, PLAYGROUND_WIDTH // 13 * 12,
+                                 self.cell_size * 2 - 10, 60, self.players)
             self.screen = pygame.display.set_mode(WINDOW_SIZE)
             if self.fullscreen_mode:
                 pygame.display.set_mode(self.get_resolution(), pygame.FULLSCREEN)
@@ -53,7 +54,6 @@ class Game:
                                          self.enemies),
                              SimpleEnemy(PLAYGROUND_WIDTH // 13 * 12, 0, self.cell_size * 2 - 10, self.enemies))
             self.clock = pygame.time.Clock()
-            self.main_loop()
 
     def main_loop(self):
         self.run = True
@@ -569,4 +569,5 @@ def read_map(filename: str):
 if __name__ == '__main__':
     pygame.init()
     game = Game()
+    game.main_loop()
     pygame.quit()
