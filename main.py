@@ -34,14 +34,16 @@ class Game:
         self.bullets = pygame.sprite.Group()
         self.blocks = pygame.sprite.Group()
         self.players = pygame.sprite.Group()
+        self.iceblocks = pygame.sprite.Group()
         self.foreground_sprites = pygame.sprite.Group()
         self.player = Player(PLAYGROUND_WIDTH // 13 * 4, PLAYGROUND_WIDTH // 13 * 12,
                              self.cell_size * 2 - 10, 60, self.players)
         self.screen = pygame.display.set_mode(WINDOW_SIZE)
         self.init_map()
-        self.enemy_1 = Enemy(0, 0, self.cell_size * 2 - 10, 60, self.enemies)
-        self.enemy_2 = Enemy(PLAYGROUND_WIDTH // 2 - self.cell_size // 2 - 10, 0, self.cell_size * 2 - 10,
-                             60, self.enemies)
+        self.enemies.add(QuickTank(0, 0, self.cell_size * 2 - 10, self.enemies),
+                         SimpleEnemy(PLAYGROUND_WIDTH // 2 - self.cell_size // 2 - 10, 0, self.cell_size * 2 - 10,
+                                       self.enemies),
+                         SimpleEnemy(PLAYGROUND_WIDTH // 13 * 12, 0, self.cell_size * 2 - 10, self.enemies))
         self.run = False
         self.clock = pygame.time.Clock()
         self.sprites.add(self.player)
@@ -67,6 +69,7 @@ class Game:
         canvas = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
         canvas.fill((0, 0, 0))
         self.blocks.draw(canvas)
+        self.iceblocks.draw(canvas)
         self.players.draw(canvas)
         self.enemies.draw(canvas)
         self.bullets.draw(canvas)
@@ -90,39 +93,38 @@ class Game:
                 elif self.map[i, j] == 3:
                     self.blocks.add(WaterWall(i * self.cell_size, j * self.cell_size, self.cell_size))
                 elif self.map[i, j] == 4:
-                    self.blocks.add(IceWall(i * self.cell_size, j * self.cell_size, self.cell_size))
+                    self.iceblocks.add(IceWall(i * self.cell_size, j * self.cell_size, self.cell_size))
 
 
 class Tank(pygame.sprite.Sprite):
     def __init__(self, x, y, cell_size, velocity, *groups):
         super().__init__(*groups)
         self.rect = pygame.Rect(x, y, cell_size, cell_size)
-        self.velocity = velocity
-        self.vel_x, self.vel_y = -velocity, 0
+        self.velocity = velocity / FPS
+        self.vel_x, self.vel_y = -self.velocity, 0
         self.image = pygame.Surface((cell_size, cell_size))
-        self.facing = LEFT
+        self.facing = UP
         self.animation = None
         self.angle = 0
         self.stay = True
         self.bullet_limit = 1
+        self.bullet_speed = 240
         self.cell_size = cell_size
         self.terminated = False
 
     def update(self, *args):
         if not self.terminated:
-            self.rect.y += self.vel_y / FPS
+            self.rect.y += self.vel_y
             collides = pygame.sprite.spritecollide(self,
-                                                   pygame.sprite.Group(game.players, game.blocks, game.enemies), False)
-            if len(collides) > (1 + list(isinstance(x, IceWall) for x in collides).count(True)) or\
-                    not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
-                self.rect.y -= self.vel_y / FPS
-            self.rect.x += self.vel_x / FPS
+                                                   pygame.sprite.Group(game.players, game.blocks, game.enemies), 0)
+            if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
+                self.rect.y -= self.vel_y
+            self.rect.x += self.vel_x
             self.stay = False
             collides = pygame.sprite.spritecollide(self,
-                                                   pygame.sprite.Group(game.players, game.blocks, game.enemies), False)
-            if len(collides) > (1 + list(isinstance(x, IceWall) for x in collides).count(True)) or\
-                    not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
-                self.rect.x -= self.vel_x / FPS
+                                                   pygame.sprite.Group(game.players, game.blocks, game.enemies), 0)
+            if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
+                self.rect.x -= self.vel_x
             if self.vel_x > 0:
                 self.facing = RIGHT
                 self.angle = 270
@@ -167,23 +169,22 @@ class Enemy(Tank):
                                 load_image('enemy_tier1_tank_yellow_2', (cell_size, cell_size), -1)))
         self.image = next(self.animation)
         self.mask = pygame.mask.from_surface(self.image)
-        self.reward = 100
+        self.reward = 0
+        self.facing = DOWN
 
     def update(self, *args):
         if not self.terminated:
-            self.rect.y += self.vel_y / FPS
+            self.rect.y += self.vel_y
             collides = pygame.sprite.spritecollide(self,
                                                    pygame.sprite.Group(game.players, game.blocks, game.enemies), False)
-            if len(collides) > (1 + list(isinstance(x, IceWall) for x in collides).count(True)) or\
-                    not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
-                self.rect.y -= self.vel_y / FPS
+            if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
+                self.rect.y -= self.vel_y
                 self.choose_new_direction()
-            self.rect.x += self.vel_x / FPS
+            self.rect.x += self.vel_x
             collides = pygame.sprite.spritecollide(self,
                                                    pygame.sprite.Group(game.players, game.blocks, game.enemies), False)
-            if len(collides) > (1 + list(isinstance(x, IceWall) for x in collides).count(True)) or \
-                    not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
-                self.rect.x -= self.vel_x / FPS
+            if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
+                self.rect.x -= self.vel_x
                 self.choose_new_direction()
             if randint(0, 7) == 0:
                 self.shoot()
@@ -193,43 +194,46 @@ class Enemy(Tank):
 
         inverse_direction = directions[(directions.index(self.facing) + 2) % 4]
         shuffle(directions)
+        directions.remove(inverse_direction)
+        directions.append(inverse_direction)
+        directions.remove(self.facing)
 
         new_direction = None
 
         for direction in directions:
             if direction == UP:
                 new_sprite = pygame.sprite.Sprite()
-                new_sprite.rect = self.rect.move(0, -self.velocity / FPS)
+                new_sprite.rect = self.rect.move(0, -self.cell_size)
                 collides = pygame.sprite.spritecollide(new_sprite,
                                                        pygame.sprite.Group(game.players, game.blocks), False)
-                if len(collides) > (1 + list(isinstance(x, IceWall) for x in collides).count(True)):
+                if len(collides) == 0 and 0 <= new_sprite.rect.top:
                     new_direction = direction
                     del new_sprite
                     break
             elif direction == RIGHT:
                 new_sprite = pygame.sprite.Sprite()
-                new_sprite.rect = self.rect.move(self.velocity / FPS, 0)
+                new_sprite.rect = self.rect.move(self.cell_size, 0)
                 collides = pygame.sprite.spritecollide(new_sprite,
                                                        pygame.sprite.Group(game.players, game.blocks), False)
-                if len(collides) > (1 + list(isinstance(x, IceWall) for x in collides).count(True)):
+                if len(collides) == 0 and PLAYGROUND_WIDTH >= new_sprite.rect.right:
                     new_direction = direction
                     del new_sprite
                     break
             elif direction == DOWN:
                 new_sprite = pygame.sprite.Sprite()
-                new_sprite.rect = self.rect.move(0, self.velocity / FPS)
+                new_sprite.rect = self.rect.move(0, self.cell_size)
                 collides = pygame.sprite.spritecollide(new_sprite,
                                                        pygame.sprite.Group(game.players, game.blocks), False)
-                if len(collides) > (1 + list(isinstance(x, IceWall) for x in collides).count(True)):
+                if len(collides) == 0 and PLAYGROUND_WIDTH >= new_sprite.rect.bottom:
                     new_direction = direction
                     del new_sprite
                     break
             elif direction == LEFT:
                 new_sprite = pygame.sprite.Sprite()
-                new_sprite.rect = self.rect.move(-self.velocity / FPS, 0)
+                new_sprite.rect = self.rect.move(-self.cell_size, 0)
                 collides = pygame.sprite.spritecollide(new_sprite,
                                                        pygame.sprite.Group(game.players, game.blocks), False)
-                if len(collides) > (1 + list(isinstance(x, IceWall) for x in collides).count(True)):
+                if len(collides) == 0 and 0 <= new_sprite.rect.left:
                     new_direction = direction
                     del new_sprite
                     break
@@ -246,6 +250,28 @@ class Enemy(Tank):
         elif new_direction == RIGHT:
             self.vel_x, self.vel_y = self.velocity, 0
         self.facing = new_direction
+
+
+class SimpleEnemy(Enemy):
+    def __init__(self, x, y, cell_size, *groups):
+        super().__init__(x, y, cell_size, 60, *groups)
+
+
+class QuickTank(Enemy):
+    def __init__(self, x, y, cell_size, *groups):
+        super().__init__(x, y, cell_size, 120, *groups)
+        self.reward = 200
+        self.animation = cycle((load_image('enemy_tier2_tank_yellow', (cell_size, cell_size), -1),
+                                load_image('enemy_tier2_tank_yellow_2', (cell_size, cell_size), -1)))
+        self.image = next(self.animation)
+        self.mask = pygame.mask.from_surface(self.image)
+
+
+class QuickFireTank(Enemy):
+    def __init__(self, x, y, cell_size, *groups):
+        super().__init__(x, y, cell_size, 60, *groups)
+        self.bullet_speed *= 2
+        self.reward = 300
 
 
 class Player(Tank):
@@ -343,16 +369,16 @@ class Bullet(pygame.sprite.Sprite):
         self.rect = pygame.Rect(0, 0, 17, 17)
         if owner.facing == LEFT:
             self.rect.center = owner.rect.midleft
-            self.velocity_x, self.velocity_y = -240, 0
+            self.velocity_x, self.velocity_y = -self.owner.bullet_speed / FPS, 0
         elif owner.facing == RIGHT:
             self.rect.center = owner.rect.midright
-            self.velocity_x, self.velocity_y = 240, 0
+            self.velocity_x, self.velocity_y = self.owner.bullet_speed / FPS, 0
         elif owner.facing == DOWN:
             self.rect.center = owner.rect.midbottom
-            self.velocity_x, self.velocity_y = 0, 240
+            self.velocity_x, self.velocity_y = 0, self.owner.bullet_speed / FPS
         else:
             self.rect.center = owner.rect.midtop
-            self.velocity_x, self.velocity_y = 0, -240
+            self.velocity_x, self.velocity_y = 0, -self.owner.bullet_speed / FPS
 
         self.image = load_image('bullet', (17, 17), (0, 0, 0))
         if self.owner.facing == RIGHT:
@@ -365,8 +391,8 @@ class Bullet(pygame.sprite.Sprite):
         self.mask = pygame.mask.from_surface(self.image)
 
     def update(self, *args):
-        self.rect.centerx += self.velocity_x / FPS
-        self.rect.centery += self.velocity_y / FPS
+        self.rect.centerx += self.velocity_x
+        self.rect.centery += self.velocity_y
 
         if isinstance(self.owner, Player):
             collided = get_collided_by_mask(self, game.enemies)
