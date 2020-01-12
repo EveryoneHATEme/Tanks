@@ -41,7 +41,7 @@ class Game:
             self.bullets = pygame.sprite.Group()
             self.blocks = pygame.sprite.Group()
             self.players = pygame.sprite.Group()
-            self.ice_blocks = pygame.sprite.Group()
+            self.iceblocks = pygame.sprite.Group()
             self.grass_blocks = pygame.sprite.Group()
             self.player = Player(PLAYGROUND_WIDTH // 13 * 4, PLAYGROUND_WIDTH // 13 * 12,
                                  self.cell_size * 2 - 10, 90, self.players)
@@ -56,6 +56,7 @@ class Game:
             self.clock = pygame.time.Clock()
 
     def main_loop(self):
+        self.run = True
         while self.run:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -81,7 +82,7 @@ class Game:
         canvas = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
         canvas.fill((0, 0, 0))
         self.blocks.draw(canvas)
-        self.ice_blocks.draw(canvas)
+        self.iceblocks.draw(canvas)
         self.players.draw(canvas)
         self.enemies.draw(canvas)
         self.bullets.draw(canvas)
@@ -106,7 +107,7 @@ class Game:
                 elif self.map[i, j] == 3:
                     self.blocks.add(WaterWall(i * self.cell_size, j * self.cell_size, self.cell_size))
                 elif self.map[i, j] == 4:
-                    self.ice_blocks.add(IceWall(i * self.cell_size, j * self.cell_size, self.cell_size))
+                    self.iceblocks.add(IceWall(i * self.cell_size, j * self.cell_size, self.cell_size))
                 elif self.map[i, j] == 5:
                     self.grass_blocks.add(GrassWall(i * self.cell_size, j * self.cell_size, self.cell_size))
 
@@ -340,11 +341,8 @@ class Block(pygame.sprite.Sprite):
         super().__init__(*groups)
         self.rect = pygame.Rect(x, y, cell_size, cell_size)
 
-        self.explosion_animation = iter([load_image('explosion_animation_%d' % i, (cell_size, cell_size)) for i in range(7)])
-        #self.image = next(self.animation)
-        #self.mask = pygame.mask.from_surface(self.image)
-        #self.time = time.time()
-        self.is_under_fire_flag = False
+        # self.explosion_animation = iter([load_image('bullet_explosion_%d' % i, (cell_size, cell_size)) for i in range(3)])
+        # self.is_under_fire_flag = False
 
     def is_under_fire(self, bullet):
         pass
@@ -362,16 +360,17 @@ class BrickWall(Block):
         self.start_exp_flag = False
 
     def is_under_fire(self, bullet):
-        self.is_under_fire_flag = True
+        # self.is_under_fire_flag = True
         bullet.terminate()
+        self.terminate()
 
-    def update(self, *args):
-        if self.is_under_fire_flag:
-            next_image = next(self.explosion_animation, None)
-            if next_image is not None:
-                self.image = next_image
-            else:
-                self.terminate()
+    # def update(self, *args):
+    #     if self.is_under_fire_flag:
+    #         next_image = next(self.explosion_animation, None)
+    #         if next_image is not None:
+    #             self.image = next_image
+    #         else:
+    #             self.terminate()
 
 
 class StrongBrickWall(Block):
@@ -419,6 +418,11 @@ class GrassWall(Block):
 class Bullet(pygame.sprite.Sprite):
     def __init__(self, owner: Tank, *groups):
         super().__init__(*groups)
+        self.flag_move = 0
+
+        self.explosion_animation = iter([load_image('bullet_explosion_%d' % i, (50, 50)) for i in range(3)])
+        self.start_terminate = False
+
         self.owner = owner
         self.level = 1
         self.rect = pygame.Rect(0, 0, 17, 17)
@@ -446,8 +450,25 @@ class Bullet(pygame.sprite.Sprite):
         self.mask = pygame.mask.from_surface(self.image)
 
     def update(self, *args):
-        self.rect.centerx += self.velocity_x
-        self.rect.centery += self.velocity_y
+        if not self.start_terminate:
+            self.rect.centerx += self.velocity_x
+            self.rect.centery += self.velocity_y
+        else:
+            if self.flag_move == 0:
+                self.rect.centerx -= 15
+                self.rect.centery -= 15
+                self.flag_move = 1
+
+        if self.start_terminate:
+            next_image = next(self.explosion_animation, None)
+            if next_image is not None:
+                self.image = next_image
+            else:
+                self.remove(*self.groups())
+                del self
+                return
+
+                #self.terminate()
 
         if isinstance(self.owner, Player):
             collided = get_collided_by_mask(self, game.enemies)
@@ -478,8 +499,10 @@ class Bullet(pygame.sprite.Sprite):
             self.terminate()
 
     def terminate(self):
-        self.remove(*self.groups())
-        del self
+        self.start_terminate = True
+
+        #self.remove(*self.groups())
+        #del self
 
 
 class Menu:
@@ -587,6 +610,7 @@ def read_map(filename: str):
 
 
 if __name__ == '__main__':
+    pygame.init()
     game = Game()
     game.main_loop()
     pygame.quit()
