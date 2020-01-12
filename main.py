@@ -1,5 +1,4 @@
 import pygame
-import numpy as np
 from random import shuffle, randint
 import os
 import time
@@ -34,25 +33,21 @@ class Game:
         self.fullscreen_mode = False
         Menu(self)
         if self.run:
-            self.map = read_map('map1.txt').T  # загружаем карту из txt файла, возможно будем хранить по-другому
-            self.cell_size = PLAYGROUND_WIDTH // self.map.shape[1]
-            self.sprites = pygame.sprite.Group()
+            self.enemy_list = []
+            self.cell_size = PLAYGROUND_WIDTH // 26
+            self.enemy_positions = cycle([(PLAYGROUND_WIDTH // 26 * 12, 0), (PLAYGROUND_WIDTH // 26 * 24, 0), (0, 0)])
             self.enemies = pygame.sprite.Group()
             self.bullets = pygame.sprite.Group()
             self.blocks = pygame.sprite.Group()
             self.players = pygame.sprite.Group()
             self.iceblocks = pygame.sprite.Group()
             self.grass_blocks = pygame.sprite.Group()
-            self.player = Player(PLAYGROUND_WIDTH // 13 * 4, PLAYGROUND_WIDTH // 13 * 12,
-                                 self.cell_size * 2 - 10, 90, self.players)
+            self.level = 1
             self.screen = pygame.display.set_mode(WINDOW_SIZE)
             if self.fullscreen_mode:
                 pygame.display.set_mode(self.get_resolution(), pygame.FULLSCREEN)
-            self.init_map()
-            self.enemies.add(QuickTank(0, 0, self.cell_size * 2 - 10, self.enemies),
-                             SimpleEnemy(PLAYGROUND_WIDTH // 2 - self.cell_size // 2 - 10, 0, self.cell_size * 2 - 10,
-                                         self.enemies),
-                             SimpleEnemy(PLAYGROUND_WIDTH // 13 * 12, 0, self.cell_size * 2 - 10, self.enemies))
+            self.init_level(f'map{self.level}.txt')
+            self.time = time.time()
             self.clock = pygame.time.Clock()
 
     def main_loop(self):
@@ -67,13 +62,35 @@ class Game:
                     else:
                         pygame.display.set_mode(self.get_resolution(), pygame.FULLSCREEN)
                     self.fullscreen_mode = not self.fullscreen_mode
-                self.player.check_controls(event)
+                for player in self.players.sprites():
+                    player.check_controls(event)
             self.enemies.update()
             self.bullets.update()
             self.blocks.update()
             self.players.update()
+            if time.time() - self.time > (190 - self.level * 4 - (len(self.players) - 1) * 20) // 60 and\
+                    len(self.enemy_list) > 0 and len(self.enemies.sprites()) < 4 or len(self.enemy_list) == 20:
+                self.spawn_enemy()
+                self.time = time.time()
+            if not any(x.duration for x in self.players.sprites()):
+                self.run = False
+            if len(self.enemy_list) == 0 and len(self.enemies.sprites()) == 0:
+                self.level += 1
+                self.init_level(f'map{self.level}.txt')
             self.render()
             self.clock.tick(FPS)
+
+    def spawn_enemy(self):
+        coords = next(self.enemy_positions)
+        enemy_type = self.enemy_list.pop(0)
+        if enemy_type == 0:
+            self.enemies.add(SimpleEnemy(*coords, self.cell_size))
+        elif enemy_type == 1:
+            self.enemies.add(QuickTank(*coords, self.cell_size))
+        elif enemy_type == 2:
+            self.enemies.add(QuickFireTank(*coords, self.cell_size))
+        elif enemy_type == 3:
+            self.enemies.add(StrongTank(*coords, self.cell_size))
 
     def render(self):
         """
@@ -93,23 +110,41 @@ class Game:
                                   sc_height // 2 - canvas.get_height() // 2))
         pygame.display.flip()
 
-    def init_map(self):
+    def init_level(self, filename):
         """
         Пробегаемся по массиву, полученному из файла с картой
         инициализируем и добавляем в список стены
         """
-        for i in range(PLAYGROUND_WIDTH // self.cell_size):
-            for j in range(PLAYGROUND_WIDTH // self.cell_size):
-                if self.map[i, j] == 1:
-                    self.blocks.add(BrickWall(i * self.cell_size, j * self.cell_size, self.cell_size))
-                elif self.map[i, j] == 2:
-                    self.blocks.add(StrongBrickWall(i * self.cell_size, j * self.cell_size, self.cell_size))
-                elif self.map[i, j] == 3:
-                    self.blocks.add(WaterWall(i * self.cell_size, j * self.cell_size, self.cell_size))
-                elif self.map[i, j] == 4:
-                    self.iceblocks.add(IceWall(i * self.cell_size, j * self.cell_size, self.cell_size))
-                elif self.map[i, j] == 5:
-                    self.grass_blocks.add(GrassWall(i * self.cell_size, j * self.cell_size, self.cell_size))
+
+        _map, enemies_amount = read_map(filename)
+        self.iceblocks.empty()
+        self.blocks.empty()
+        self.grass_blocks.empty()
+        self.bullets.empty()
+        self.enemies.empty()
+        self.players.empty()
+
+        for i in range(len(_map)):
+            for j in range(len(_map[i])):
+                if _map[i][j] == 1:
+                    self.blocks.add(BrickWall(j * self.cell_size, i * self.cell_size, self.cell_size))
+                elif _map[i][j] == 2:
+                    self.blocks.add(StrongBrickWall(j * self.cell_size, i * self.cell_size, self.cell_size))
+                elif _map[i][j] == 3:
+                    self.blocks.add(WaterWall(j * self.cell_size, i * self.cell_size, self.cell_size))
+                elif _map[i][j] == 4:
+                    self.iceblocks.add(IceWall(j * self.cell_size, i * self.cell_size, self.cell_size))
+                elif _map[i][j] == 5:
+                    self.grass_blocks.add(GrassWall(j * self.cell_size, i * self.cell_size, self.cell_size))
+
+        self.players.add(Player(PLAYGROUND_WIDTH // 13 * 4, PLAYGROUND_WIDTH // 13 * 12,
+                                self.cell_size, 90, self.players))
+        self.enemy_list = [0 for _ in range(enemies_amount[0])] +\
+                          [1 for _ in range(enemies_amount[1])] +\
+                          [2 for _ in range(enemies_amount[2])] +\
+                          [3 for _ in range(enemies_amount[3])]
+        shuffle(self.enemy_list)
+        del self.enemy_list[20:]
 
     def get_resolution(self):
         return ctypes.windll.user32.GetSystemMetrics(0), ctypes.windll.user32.GetSystemMetrics(1)
@@ -118,49 +153,51 @@ class Game:
 class Tank(pygame.sprite.Sprite):
     def __init__(self, x, y, cell_size, velocity, *groups):
         super().__init__(*groups)
-        self.rect = pygame.Rect(x, y, cell_size, cell_size)
+        self.cell_size = cell_size * 2 - 10
+        self.rect = pygame.Rect(x, y, self.cell_size, self.cell_size)
         self.velocity = velocity / FPS
         self.vel_x, self.vel_y = -self.velocity, 0
-        self.image = pygame.Surface((cell_size, cell_size))
+        self.image = pygame.Surface((self.cell_size, self.cell_size))
         self.facing = UP
         self.animation = None
+        self.duration = 1
         self.angle = 0
         self.stay = True
         self.bullet_limit = 1
         self.bullet_speed = 240
-        self.cell_size = cell_size
-        self.terminated = False
 
     def update(self, *args):
-        if not self.terminated:
-            self.rect.y += self.vel_y
-            collides = pygame.sprite.spritecollide(self,
-                                                   pygame.sprite.Group(game.players, game.blocks, game.enemies), 0)
-            if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
-                self.rect.y -= self.vel_y
-            self.rect.x += self.vel_x
-            self.stay = False
-            collides = pygame.sprite.spritecollide(self,
-                                                   pygame.sprite.Group(game.players, game.blocks, game.enemies), 0)
-            if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
-                self.rect.x -= self.vel_x
-            if self.vel_x > 0:
-                self.facing = RIGHT
-                self.angle = 270
-            elif self.vel_x < 0:
-                self.facing = LEFT
-                self.angle = 90
-            elif self.vel_y > 0:
-                self.facing = DOWN
-                self.angle = 180
-            elif self.vel_y < 0:
-                self.facing = UP
-                self.angle = 0
-            else:
-                self.stay = True
-            if self.animation and not self.stay:
-                self.image = next(self.animation)
-                self.image = pygame.transform.rotate(self.image, self.angle)
+        if self.duration <= 0:
+            self.terminate()
+            return
+        self.rect.y += self.vel_y
+        collides = pygame.sprite.spritecollide(self,
+                                               pygame.sprite.Group(game.players, game.blocks, game.enemies), 0)
+        if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
+            self.rect.y -= self.vel_y
+        self.rect.x += self.vel_x
+        self.stay = False
+        collides = pygame.sprite.spritecollide(self,
+                                               pygame.sprite.Group(game.players, game.blocks, game.enemies), 0)
+        if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
+            self.rect.x -= self.vel_x
+        if self.vel_x > 0:
+            self.facing = RIGHT
+            self.angle = 270
+        elif self.vel_x < 0:
+            self.facing = LEFT
+            self.angle = 90
+        elif self.vel_y > 0:
+            self.facing = DOWN
+            self.angle = 180
+        elif self.vel_y < 0:
+            self.facing = UP
+            self.angle = 0
+        else:
+            self.stay = True
+        if self.animation and not self.stay:
+            self.image = next(self.animation)
+            self.image = pygame.transform.rotate(self.image, self.angle)
 
     def shoot(self):
         bullets_count = 0
@@ -172,44 +209,45 @@ class Tank(pygame.sprite.Sprite):
 
         game.bullets.add(Bullet(self))
 
-    def is_under_fire(self, bullet):
-        bullet.terminate()
+    def is_under_fire(self):
+        self.duration -= 1
 
     def terminate(self):
         self.remove(*self.groups())
-        self.terminated = True
         del self
 
 
 class Enemy(Tank):
     def __init__(self, x, y, cell_size, velocity, *groups):
         super().__init__(x, y, cell_size, velocity, *groups)
-        self.animation = cycle((load_image('enemy_tier1_tank_yellow', (cell_size, cell_size), -1),
-                                load_image('enemy_tier1_tank_yellow_2', (cell_size, cell_size), -1)))
+        self.animation = cycle((load_image('enemy_tier1_tank_yellow', (self.cell_size, self.cell_size), -1),
+                                load_image('enemy_tier1_tank_yellow_2', (self.cell_size, self.cell_size), -1)))
         self.image = next(self.animation)
         self.mask = pygame.mask.from_surface(self.image)
         self.reward = 0
         self.facing = DOWN
 
     def update(self, *args):
-        if not self.terminated:
-            self.rect.y += self.vel_y
-            collides = pygame.sprite.spritecollide(self,
-                                                   pygame.sprite.Group(game.players, game.blocks, game.enemies), False)
-            if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
-                self.rect.y -= self.vel_y
-                self.choose_new_direction()
-            self.rect.x += self.vel_x
-            collides = pygame.sprite.spritecollide(self,
-                                                   pygame.sprite.Group(game.players, game.blocks, game.enemies), False)
-            if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
-                self.rect.x -= self.vel_x
-                self.choose_new_direction()
-            if randint(0, 7) == 0:
-                self.shoot()
-            if self.animation and not self.stay:
-                self.image = next(self.animation)
-                self.image = pygame.transform.rotate(self.image, self.angle)
+        if self.duration <= 0:
+            self.terminate()
+            return
+        self.rect.y += self.vel_y
+        collides = pygame.sprite.spritecollide(self,
+                                               pygame.sprite.Group(game.players, game.blocks, game.enemies), False)
+        if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
+            self.rect.y -= self.vel_y
+            self.choose_new_direction()
+        self.rect.x += self.vel_x
+        collides = pygame.sprite.spritecollide(self,
+                                               pygame.sprite.Group(game.players, game.blocks, game.enemies), False)
+        if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
+            self.rect.x -= self.vel_x
+            self.choose_new_direction()
+        if randint(0, 7) == 0:
+            self.shoot()
+        if self.animation and not self.stay:
+            self.image = next(self.animation)
+            self.image = pygame.transform.rotate(self.image, self.angle)
 
     def choose_new_direction(self):
         directions = [UP, RIGHT, DOWN, LEFT]
@@ -290,8 +328,8 @@ class QuickTank(Enemy):
     def __init__(self, x, y, cell_size, *groups):
         super().__init__(x, y, cell_size, 90, *groups)
         self.reward = 200
-        self.animation = cycle((load_image('enemy_tier2_tank_yellow', (cell_size, cell_size), -1),
-                                load_image('enemy_tier2_tank_yellow_2', (cell_size, cell_size), -1)))
+        self.animation = cycle((load_image('enemy_tier2_tank_yellow', (self.cell_size, self.cell_size), -1),
+                                load_image('enemy_tier2_tank_yellow_2', (self.cell_size, self.cell_size), -1)))
         self.image = next(self.animation)
         self.mask = pygame.mask.from_surface(self.image)
 
@@ -303,11 +341,18 @@ class QuickFireTank(Enemy):
         self.reward = 300
 
 
+class StrongTank(Enemy):
+    def __init__(self, x, y, cell_size, *groups):
+        super().__init__(x, y, cell_size, 60, *groups)
+        self.reward = 400
+        self.duration = 4
+
+
 class Player(Tank):
     def __init__(self, x, y, cell_size, velocity, group):
         super().__init__(x, y, cell_size, velocity, group)
-        self.animation = cycle((load_image('tier1_tank_yellow', (cell_size, cell_size), -1),
-                               load_image('tier1_tank_yellow_2', (cell_size, cell_size), -1)))
+        self.animation = cycle((load_image('tier1_tank_yellow', (self.cell_size, self.cell_size), -1),
+                               load_image('tier1_tank_yellow_2', (self.cell_size, self.cell_size), -1)))
         self.image = next(self.animation)
         self.score = 0
 
@@ -336,12 +381,12 @@ class Block(pygame.sprite.Sprite):
         super().__init__(*groups)
         self.rect = pygame.Rect(x, y, cell_size, cell_size)
 
-        self.explosion_animation = iter([load_image('explosion_animation_%d' % i, (cell_size, cell_size)) for i in range(7)])
+        self.explosion_animation = iter([load_image('explosion_animation_%d' % i,
+                                                    (cell_size, cell_size)) for i in range(7)])
         #self.image = next(self.animation)
         #self.mask = pygame.mask.from_surface(self.image)
         #self.time = time.time()
         self.is_under_fire_flag = False
-
 
     def is_under_fire(self, bullet):
         pass
@@ -442,8 +487,6 @@ class Bullet(pygame.sprite.Sprite):
         # self.image = pygame.transform.rotate(self.image, 90)
         self.mask = pygame.mask.from_surface(self.image)
 
-
-
     def update(self, *args):
         self.rect.centerx += self.velocity_x
         self.rect.centery += self.velocity_y
@@ -452,8 +495,7 @@ class Bullet(pygame.sprite.Sprite):
             collided = get_collided_by_mask(self, game.enemies)
             if collided:
                 self.owner.score += collided[0].reward
-                print(self.owner.score)
-                collided[0].terminate()
+                collided[0].is_under_fire()
                 self.terminate()
                 return
             collided = get_collided_by_mask(self, game.blocks)
@@ -463,7 +505,7 @@ class Bullet(pygame.sprite.Sprite):
         elif isinstance(self.owner, Enemy):
             collided = get_collided_by_mask(self, game.players)
             if collided:
-                collided[0].is_under_fire(self)
+                collided[0].is_under_fire()
                 self.terminate()
                 return
             collided = get_collided_by_mask(self, game.blocks)
@@ -581,8 +623,15 @@ def get_collided_by_mask(sprite_1: pygame.sprite.Sprite, group: pygame.sprite.Gr
 
 def read_map(filename: str):
     with open(filename) as file:
-        res = [[int(i) for i in line.strip()] for line in file.readlines()]
-        return np.array(res, dtype=int, ndmin=1)
+        content = file.readlines()
+    res = []
+    for i in range(len(content[:-1])):
+        line = []
+        for j in range(len(content[i].strip())):
+            line.append(int(content[i][j]))
+        res.append(line)
+    enemies = tuple(map(int, content[-1].strip().split()))
+    return res, enemies
 
 
 if __name__ == '__main__':
@@ -590,3 +639,6 @@ if __name__ == '__main__':
     game = Game()
     game.main_loop()
     pygame.quit()
+
+
+#print(read_map('map1.txt'))
