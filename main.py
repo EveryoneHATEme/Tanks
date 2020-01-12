@@ -146,18 +146,15 @@ class Tank(pygame.sprite.Sprite):
                 self.rect.x -= self.vel_x
             if self.vel_x > 0:
                 self.facing = RIGHT
-                self.angle = 270
             elif self.vel_x < 0:
                 self.facing = LEFT
-                self.angle = 90
             elif self.vel_y > 0:
                 self.facing = DOWN
-                self.angle = 180
             elif self.vel_y < 0:
                 self.facing = UP
-                self.angle = 0
             else:
                 self.stay = True
+            self.change_angle()
             if self.animation and not self.stay:
                 self.image = next(self.animation)
                 self.image = pygame.transform.rotate(self.image, self.angle)
@@ -175,6 +172,16 @@ class Tank(pygame.sprite.Sprite):
     def is_under_fire(self, bullet):
         bullet.terminate()
 
+    def change_angle(self):
+        if self.facing == UP:
+            self.angle = 0
+        elif self.facing == DOWN:
+            self.angle = 180
+        elif self.facing == LEFT:
+            self.angle = 90
+        elif self.facing == RIGHT:
+            self.angle = 270
+
     def terminate(self):
         self.remove(*self.groups())
         self.terminated = True
@@ -184,11 +191,12 @@ class Tank(pygame.sprite.Sprite):
 class Enemy(Tank):
     def __init__(self, x, y, cell_size, velocity, *groups):
         super().__init__(x, y, cell_size, velocity, *groups)
-        self.animation = cycle((load_image('enemy_tier1_tank_yellow', (cell_size, cell_size), -1),
-                                load_image('enemy_tier1_tank_yellow_2', (cell_size, cell_size), -1)))
+        self.animation = cycle((load_image('enemy_tier1_tank', (cell_size, cell_size), -1),
+                                load_image('enemy_tier1_tank_2', (cell_size, cell_size), -1)))
         self.image = next(self.animation)
         self.mask = pygame.mask.from_surface(self.image)
         self.reward = 0
+        self.stay = False
         self.facing = DOWN
 
     def update(self, *args):
@@ -205,8 +213,9 @@ class Enemy(Tank):
             if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
                 self.rect.x -= self.vel_x
                 self.choose_new_direction()
-            if randint(0, 7) == 0:
+            if not randint(0, 7):
                 self.shoot()
+            self.change_angle()
             if self.animation and not self.stay:
                 self.image = next(self.animation)
                 self.image = pygame.transform.rotate(self.image, self.angle)
@@ -266,16 +275,12 @@ class Enemy(Tank):
         self.stay = False
         if new_direction == UP:
             self.vel_x, self.vel_y = 0, -self.velocity
-            self.angle = 0
         elif new_direction == DOWN:
             self.vel_x, self.vel_y = 0, self.velocity
-            self.angle = 180
         elif new_direction == LEFT:
             self.vel_x, self.vel_y = -self.velocity, 0
-            self.angle = 90
         elif new_direction == RIGHT:
             self.vel_x, self.vel_y = self.velocity, 0
-            self.angle = 270
         else:
             self.stay = True
         self.facing = new_direction
@@ -290,8 +295,8 @@ class QuickTank(Enemy):
     def __init__(self, x, y, cell_size, *groups):
         super().__init__(x, y, cell_size, 90, *groups)
         self.reward = 200
-        self.animation = cycle((load_image('enemy_tier2_tank_yellow', (cell_size, cell_size), -1),
-                                load_image('enemy_tier2_tank_yellow_2', (cell_size, cell_size), -1)))
+        self.animation = cycle((load_image('enemy_tier2_tank', (cell_size, cell_size), -1),
+                                load_image('enemy_tier2_tank_2', (cell_size, cell_size), -1)))
         self.image = next(self.animation)
         self.mask = pygame.mask.from_surface(self.image)
 
@@ -306,8 +311,8 @@ class QuickFireTank(Enemy):
 class Player(Tank):
     def __init__(self, x, y, cell_size, velocity, group):
         super().__init__(x, y, cell_size, velocity, group)
-        self.animation = cycle((load_image('tier1_tank_yellow', (cell_size, cell_size), -1),
-                               load_image('tier1_tank_yellow_2', (cell_size, cell_size), -1)))
+        self.animation = cycle((load_image('tier1_tank', (cell_size, cell_size), -1),
+                               load_image('tier1_tank_2', (cell_size, cell_size), -1)))
         self.image = next(self.animation)
         self.score = 0
 
@@ -341,7 +346,6 @@ class Block(pygame.sprite.Sprite):
         #self.mask = pygame.mask.from_surface(self.image)
         #self.time = time.time()
         self.is_under_fire_flag = False
-
 
     def is_under_fire(self, bullet):
         pass
@@ -441,8 +445,6 @@ class Bullet(pygame.sprite.Sprite):
             self.image = pygame.transform.rotate(self.image, 180)
         # self.image = pygame.transform.rotate(self.image, 90)
         self.mask = pygame.mask.from_surface(self.image)
-
-
 
     def update(self, *args):
         self.rect.centerx += self.velocity_x
