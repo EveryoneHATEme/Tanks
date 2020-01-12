@@ -41,7 +41,7 @@ class Game:
             self.bullets = pygame.sprite.Group()
             self.blocks = pygame.sprite.Group()
             self.players = pygame.sprite.Group()
-            self.iceblocks = pygame.sprite.Group()
+            self.ice_blocks = pygame.sprite.Group()
             self.grass_blocks = pygame.sprite.Group()
             self.player = Player(PLAYGROUND_WIDTH // 13 * 4, PLAYGROUND_WIDTH // 13 * 12,
                                  self.cell_size * 2 - 10, 90, self.players)
@@ -56,7 +56,6 @@ class Game:
             self.clock = pygame.time.Clock()
 
     def main_loop(self):
-        self.run = True
         while self.run:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -82,7 +81,7 @@ class Game:
         canvas = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
         canvas.fill((0, 0, 0))
         self.blocks.draw(canvas)
-        self.iceblocks.draw(canvas)
+        self.ice_blocks.draw(canvas)
         self.players.draw(canvas)
         self.enemies.draw(canvas)
         self.bullets.draw(canvas)
@@ -107,7 +106,7 @@ class Game:
                 elif self.map[i, j] == 3:
                     self.blocks.add(WaterWall(i * self.cell_size, j * self.cell_size, self.cell_size))
                 elif self.map[i, j] == 4:
-                    self.iceblocks.add(IceWall(i * self.cell_size, j * self.cell_size, self.cell_size))
+                    self.ice_blocks.add(IceWall(i * self.cell_size, j * self.cell_size, self.cell_size))
                 elif self.map[i, j] == 5:
                     self.grass_blocks.add(GrassWall(i * self.cell_size, j * self.cell_size, self.cell_size))
 
@@ -588,7 +587,6 @@ def read_map(filename: str):
 
 
 if __name__ == '__main__':
-    pygame.init()
     game = Game()
     game.main_loop()
     pygame.quit()
