@@ -92,20 +92,20 @@ class Game:
         coords = next(self.enemy_positions)
         enemy_type = self.enemy_list.pop(0)
         if enemy_type == 0:
-            self.enemies.add(SimpleEnemy(*coords, self.cell_size))
+            self.enemies.add(SimpleEnemy(*coords, self.cell_size, self))
         elif enemy_type == 1:
-            self.enemies.add(QuickTank(*coords, self.cell_size))
+            self.enemies.add(QuickTank(*coords, self.cell_size, self))
         elif enemy_type == 2:
-            self.enemies.add(QuickFireTank(*coords, self.cell_size))
+            self.enemies.add(QuickFireTank(*coords, self.cell_size, self))
         elif enemy_type == 3:
-            self.enemies.add(StrongTank(*coords, self.cell_size))
+            self.enemies.add(StrongTank(*coords, self.cell_size, self))
 
     def render(self):
         """
         Отрисовываем все элементы на отдельной поверхности, чтобы можно было разместить игровое поле в середние окна.
         """
         canvas = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
-        canvas.fill((0, 0, 0))
+        canvas.fill((255, 255, 255))
         self.blocks.draw(canvas)
         self.iceblocks.draw(canvas)
         self.players.draw(canvas)
@@ -148,7 +148,7 @@ class Game:
                     self.grass_blocks.add(GrassWall(j * self.cell_size, i * self.cell_size, self.cell_size))
 
         self.players.add(Player(PLAYGROUND_WIDTH // 13 * 4, PLAYGROUND_WIDTH // 13 * 12,
-                                self.cell_size, 90, self.players))
+                                self.cell_size, 90, self, self.players))
         self.enemy_list = [0 for _ in range(enemies_amount[0])] +\
                           [1 for _ in range(enemies_amount[1])] +\
                           [2 for _ in range(enemies_amount[2])] +\
@@ -381,8 +381,8 @@ class Enemy(Tank):
 
 
 class SimpleEnemy(Enemy):
-    def __init__(self, x, y, cell_size, *groups):
-        super().__init__(x, y, cell_size, 30, *groups)
+    def __init__(self, x, y, cell_size, game, *groups):
+        super().__init__(x, y, cell_size, 30, game, *groups)
 
 
 class QuickTank(Enemy):
@@ -403,15 +403,15 @@ class QuickFireTank(Enemy):
 
 
 class StrongTank(Enemy):
-    def __init__(self, x, y, cell_size, *groups):
-        super().__init__(x, y, cell_size, 60, *groups)
+    def __init__(self, x, y, cell_size, game, *groups):
+        super().__init__(x, y, cell_size, 60, game, *groups)
         self.reward = 400
         self.duration = 4
 
 
 class Player(Tank):
-    def __init__(self, x, y, cell_size, velocity, game, group):
-        super().__init__(x, y, cell_size, velocity, game, group)
+    def __init__(self, x, y, cell_size, velocity, game, *group):
+        super().__init__(x, y, cell_size, velocity, game, *group)
         self.animation = cycle((load_image('tier1_tank', (self.cell_size, self.cell_size), -1),
                                load_image('tier1_tank_2', (self.cell_size, self.cell_size), -1)))
         self.image = next(self.animation)
@@ -509,7 +509,7 @@ class Bullet(pygame.sprite.Sprite):
         super().__init__(*groups)
         self.flag_move = 0
 
-        self.explosion_animation = iter([load_image('bullet_explosion_%d' % i, (50, 50)) for i in range(3)])
+        self.explosion_animation = iter([load_image('bullet_explosion_%d' % i, (50, 50), -1) for i in range(3)])
         self.start_terminate = False
 
         self.owner = owner
