@@ -6,8 +6,9 @@ import time
 import ctypes
 from itertools import cycle
 
-WINDOW_SIZE = (1000, 700)
+WINDOW_SIZE = (1000, 650)
 PLAYGROUND_WIDTH = 650
+CELL_SIZE = 28
 UP, DOWN, LEFT, RIGHT, SHOOT = pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT, pygame.K_SPACE
 BUTTONS = {UP, DOWN, LEFT, RIGHT, SHOOT}
 FPS = 30
@@ -30,12 +31,14 @@ def load_image(name, size=None, color_key=None):
 
 class Game:
     def __init__(self):
+        global CELL_SIZE
         self.run = True
         self.fullscreen_mode = False
         Menu(self)
         if self.run:
             self.map = read_map('map1.txt').T  # загружаем карту из txt файла, возможно будем хранить по-другому
-            self.cell_size = PLAYGROUND_WIDTH // self.map.shape[1]
+            self.cell_size = PLAYGROUND_WIDTH // 26
+            CELL_SIZE = self.cell_size
             self.sprites = pygame.sprite.Group()
             self.enemies = pygame.sprite.Group()
             self.bullets = pygame.sprite.Group()
@@ -43,17 +46,20 @@ class Game:
             self.players = pygame.sprite.Group()
             self.ice_blocks = pygame.sprite.Group()
             self.grass_blocks = pygame.sprite.Group()
+            self.bonuses = pygame.sprite.Group()
+            self.shields = pygame.sprite.Group()
             self.player = Player(PLAYGROUND_WIDTH // 13 * 4, PLAYGROUND_WIDTH // 13 * 12,
-                                 self.cell_size * 2 - 10, 90, self.players)
+                                 self.cell_size * 2 - 10, 90, self, self.players)
             self.screen = pygame.display.set_mode(WINDOW_SIZE)
             if self.fullscreen_mode:
                 pygame.display.set_mode(self.get_resolution(), pygame.FULLSCREEN)
             self.init_map()
-            self.enemies.add(QuickTank(0, 0, self.cell_size * 2 - 10, self.enemies),
+            self.enemies.add(QuickTank(0, 0, self.cell_size * 2 - 10, self, self.enemies),
                              SimpleEnemy(PLAYGROUND_WIDTH // 2 - self.cell_size // 2 - 10, 0, self.cell_size * 2 - 10,
-                                         self.enemies),
-                             SimpleEnemy(PLAYGROUND_WIDTH // 13 * 12, 0, self.cell_size * 2 - 10, self.enemies))
+                                         self, self.enemies),
+                             SimpleEnemy(PLAYGROUND_WIDTH // 13 * 12, 0, self.cell_size * 2 - 10, self, self.enemies))
             self.clock = pygame.time.Clock()
+            self.bonus_time = time.time()
 
     def main_loop(self):
         while self.run:
@@ -71,6 +77,8 @@ class Game:
             self.bullets.update()
             self.blocks.update()
             self.players.update()
+            self.create_bonus()
+            self.shields.update()
             self.render()
             self.clock.tick(FPS)
 
@@ -86,6 +94,8 @@ class Game:
         self.enemies.draw(canvas)
         self.bullets.draw(canvas)
         self.grass_blocks.draw(canvas)
+        self.shields.draw(canvas)
+        self.bonuses.draw(canvas)
         self.screen.fill((0, 0, 0))
         sc_width, sc_height = self.screen.get_size()
         self.screen.blit(canvas, (sc_width // 2 - canvas.get_width() // 2,
@@ -110,17 +120,41 @@ class Game:
                 elif self.map[i, j] == 5:
                     self.grass_blocks.add(GrassWall(i * self.cell_size, j * self.cell_size, self.cell_size))
 
+    def create_bonus(self):
+        if (time.time() - self.bonus_time) >= 3:
+            self.bonus_time = time.time()
+            if randint(0, 1) == 0:
+                num = randint(0, 5)
+                x, y = randint(0, WINDOW_SIZE[0] - 32), randint(0, WINDOW_SIZE[0] - 32)
+                if not num:
+                    self.bonuses.add(BonusStar(x, y))
+                elif num == 1:
+                    self.bonuses.add(BonusClock(x, y))
+                elif num == 2:
+                    self.bonuses.add(BonusGrenade(x, y))
+                elif num == 3:
+                    self.bonuses.add(BonusHelmet(x, y))
+                elif num == 4:
+                    self.bonuses.add(BonusShovel(x, y))
+                elif num == 5:
+                    self.bonuses.add(BonusTank(x, y))
+
+    def bonus_handler(self):
+        pass
+
     def get_resolution(self):
         return ctypes.windll.user32.GetSystemMetrics(0), ctypes.windll.user32.GetSystemMetrics(1)
 
 
 class Tank(pygame.sprite.Sprite):
-    def __init__(self, x, y, cell_size, velocity, *groups):
+    def __init__(self, x, y, cell_size, velocity, game, *groups):
         super().__init__(*groups)
+        self.game = game
         self.rect = pygame.Rect(x, y, cell_size, cell_size)
         self.velocity = velocity / FPS
         self.vel_x, self.vel_y = -self.velocity, 0
         self.image = pygame.Surface((cell_size, cell_size))
+        self.bonuses = dict()
         self.facing = UP
         self.animation = None
         self.angle = 0
@@ -128,6 +162,9 @@ class Tank(pygame.sprite.Sprite):
         self.bullet_limit = 1
         self.bullet_speed = 240
         self.cell_size = cell_size
+        self.immortal = True
+        self.immortal_start_time = time.time()
+        self.immortal_duration = 5
         self.terminated = False
 
     def update(self, *args):
@@ -153,10 +190,24 @@ class Tank(pygame.sprite.Sprite):
                 self.facing = UP
             else:
                 self.stay = True
+            for bonus in pygame.sprite.spritecollide(self, pygame.sprite.Group(game.bonuses), 0):
+                self.bonuses[bonus] = time.time()
+                game.bonuses.remove(bonus)
+                bonus.terminate()
             self.change_angle()
             if self.animation and not self.stay:
                 self.image = next(self.animation)
                 self.image = pygame.transform.rotate(self.image, self.angle)
+            if self.immortal:
+                if self not in [shield.tank for shield in self.game.shields.sprites()]:
+                    self.game.shields.add(Shield(self))
+                else:
+                    if time.time() - self.immortal_start_time > self.immortal_duration:
+                        self.immortal = False
+                        for shield in self.game.shields.sprites():
+                            if shield.tank == self:
+                                self.game.shields.remove(shield)
+                                break
 
     def shoot(self):
         bullets_count = 0
@@ -188,8 +239,8 @@ class Tank(pygame.sprite.Sprite):
 
 
 class Enemy(Tank):
-    def __init__(self, x, y, cell_size, velocity, *groups):
-        super().__init__(x, y, cell_size, velocity, *groups)
+    def __init__(self, x, y, cell_size, velocity, game, *groups):
+        super().__init__(x, y, cell_size, velocity, game, *groups)
         self.animation = cycle((load_image('enemy_tier1_tank', (cell_size, cell_size), -1),
                                 load_image('enemy_tier1_tank_2', (cell_size, cell_size), -1)))
         self.image = next(self.animation)
@@ -197,6 +248,7 @@ class Enemy(Tank):
         self.reward = 0
         self.stay = False
         self.facing = DOWN
+        self.immortal = False
 
     def update(self, *args):
         if not self.terminated:
@@ -291,8 +343,8 @@ class SimpleEnemy(Enemy):
 
 
 class QuickTank(Enemy):
-    def __init__(self, x, y, cell_size, *groups):
-        super().__init__(x, y, cell_size, 90, *groups)
+    def __init__(self, x, y, cell_size, game, *groups):
+        super().__init__(x, y, cell_size, 90, game, *groups)
         self.reward = 200
         self.animation = cycle((load_image('enemy_tier2_tank', (cell_size, cell_size), -1),
                                 load_image('enemy_tier2_tank_2', (cell_size, cell_size), -1)))
@@ -301,15 +353,15 @@ class QuickTank(Enemy):
 
 
 class QuickFireTank(Enemy):
-    def __init__(self, x, y, cell_size, *groups):
-        super().__init__(x, y, cell_size, 60, *groups)
+    def __init__(self, x, y, cell_size, game, *groups):
+        super().__init__(x, y, cell_size, 60, game, *groups)
         self.bullet_speed *= 2
         self.reward = 300
 
 
 class Player(Tank):
-    def __init__(self, x, y, cell_size, velocity, group):
-        super().__init__(x, y, cell_size, velocity, group)
+    def __init__(self, x, y, cell_size, velocity, game, group):
+        super().__init__(x, y, cell_size, velocity, game, group)
         self.animation = cycle((load_image('tier1_tank', (cell_size, cell_size), -1),
                                load_image('tier1_tank_2', (cell_size, cell_size), -1)))
         self.image = next(self.animation)
@@ -442,7 +494,6 @@ class Bullet(pygame.sprite.Sprite):
             self.image = pygame.transform.rotate(self.image, 90)
         if self.owner.facing == DOWN:
             self.image = pygame.transform.rotate(self.image, 180)
-        # self.image = pygame.transform.rotate(self.image, 90)
         self.mask = pygame.mask.from_surface(self.image)
 
     def update(self, *args):
@@ -480,6 +531,69 @@ class Bullet(pygame.sprite.Sprite):
     def terminate(self):
         self.remove(*self.groups())
         del self
+
+
+class Shield(pygame.sprite.Sprite):
+    def __init__(self, tank):
+        super().__init__()
+        self.tank = tank
+        self.animation = cycle((load_image('shield', (tank.cell_size + 10, tank.cell_size + 10), -1),
+                                load_image('shield_2', (tank.cell_size + 10, tank.cell_size + 10), -1)))
+        self.image = next(self.animation)
+        self.rect = self.tank.image.get_rect()
+        self.rect.x = self.tank.rect.x - 5
+        self.rect.y = self.tank.rect.y - 5
+        self.animation_time = time.time()
+
+    def update(self, *args):
+        self.rect.x = self.tank.rect.x - 5
+        self.rect.y = self.tank.rect.y - 5
+        if time.time() - self.animation_time > 0.15:
+            self.animation_time = time.time()
+            self.image = next(self.animation)
+
+
+class Bonus(pygame.sprite.Sprite):
+    def __init__(self, image, x, y):
+        super().__init__()
+        self.image = image
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        self.mask = pygame.mask.from_surface(self.image)
+
+    def terminate(self):
+        del self
+
+
+class BonusStar(Bonus):
+    def __init__(self, x, y):
+        super().__init__(load_image('bonus_star', (CELL_SIZE * 2, CELL_SIZE * 2), -1), x, y)
+
+
+class BonusGrenade(Bonus):
+    def __init__(self, x, y):
+        super().__init__(load_image('bonus_grenade', (CELL_SIZE * 2, CELL_SIZE * 2), -1), x, y)
+
+
+class BonusHelmet(Bonus):
+    def __init__(self, x, y):
+        super().__init__(load_image('bonus_helmet', (CELL_SIZE * 2, CELL_SIZE * 2), -1), x, y)
+
+
+class BonusShovel(Bonus):
+    def __init__(self, x, y):
+        super().__init__(load_image('bonus_shovel', (CELL_SIZE * 2, CELL_SIZE * 2), -1), x, y)
+
+
+class BonusClock(Bonus):
+    def __init__(self, x, y):
+        super().__init__(load_image('bonus_clock', (CELL_SIZE * 2, CELL_SIZE * 2), -1), x, y)
+
+
+class BonusTank(Bonus):
+    def __init__(self, x, y):
+        super().__init__(load_image('bonus_tank', (CELL_SIZE * 2, CELL_SIZE * 2), -1), x, y)
 
 
 class Menu:
