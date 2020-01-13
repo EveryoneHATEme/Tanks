@@ -45,7 +45,7 @@ class Game:
             self.players = pygame.sprite.Group()
             self.iceblocks = pygame.sprite.Group()
             self.grass_blocks = pygame.sprite.Group()
-            self.bonuses = pygame.sprite.Group()
+            self.bonuses =  pygame.sprite.Group()
             self.shields = pygame.sprite.Group()
             self.level = 1
             self.screen = pygame.display.set_mode(WINDOW_SIZE)
@@ -105,7 +105,7 @@ class Game:
         Отрисовываем все элементы на отдельной поверхности, чтобы можно было разместить игровое поле в середние окна.
         """
         canvas = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
-        canvas.fill((255, 255, 255))
+        canvas.fill((0, 0, 0))
         self.blocks.draw(canvas)
         self.iceblocks.draw(canvas)
         self.players.draw(canvas)
@@ -185,6 +185,18 @@ class Game:
 class Tank(pygame.sprite.Sprite):
     def __init__(self, x, y, cell_size, velocity, game, *groups):
         super().__init__(*groups)
+
+        self.explosion_animation_tank = iter([
+                load_image('tank_explosion_0', (90, 90), -1),
+                load_image('tank_explosion_0', (90, 90), -1),
+                load_image('tank_explosion_0', (90, 90), -1),
+                load_image('tank_explosion_0', (90, 90), -1),
+                load_image('tank_explosion_1', (90, 90), -1),
+                load_image('tank_explosion_1', (90, 90), -1),
+                load_image('tank_explosion_1', (90, 90), -1),
+                load_image('tank_explosion_1', (90, 90), -1)])
+        self.start_tank_terminate = False
+
         self.game = game
         self.cell_size = cell_size * 2 - 10
         self.rect = pygame.Rect(x, y, self.cell_size, self.cell_size)
@@ -201,15 +213,29 @@ class Tank(pygame.sprite.Sprite):
         self.bullet_speed = 240
         self.immortal = True
         self.immortal_start_time = time.time()
-        self.immortal_duration = 5
+        self.immortal_duration = 3
 
     def update(self, *args):
+
+        if self.start_tank_terminate:
+            self.rect.centerx -= 20
+            self.rect.centery -= 20
+
+            next_image = next(self.explosion_animation_tank, None)
+            if next_image is not None:
+                self.image = next_image
+                return
+            else:
+                self.remove(*self.groups())
+                del self
+                return
+
         if self.duration <= 0:
             self.terminate()
             return
+
         self.rect.y += self.vel_y
-        collides = pygame.sprite.spritecollide(self,
-                                               pygame.sprite.Group(game.players, game.blocks, game.enemies), 0)
+        collides = pygame.sprite.spritecollide(self, pygame.sprite.Group(game.players, game.blocks, game.enemies), 0)
         if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
             self.rect.y -= self.vel_y
         self.rect.x += self.vel_x
@@ -262,6 +288,7 @@ class Tank(pygame.sprite.Sprite):
         game.bullets.add(Bullet(self))
 
     def is_under_fire(self):
+        self.start_tank_terminate = True
         self.duration -= 1
 
     def change_angle(self):
@@ -292,16 +319,33 @@ class Enemy(Tank):
         self.immortal = False
 
     def update(self, *args):
+        if not self.start_tank_terminate:
+            self.rect.centerx += self.vel_x
+            self.rect.centery += self.vel_y
+        else:
+            self.rect.centerx -= 6
+            self.rect.centery -= 6
+
+        if self.start_tank_terminate:
+            next_image = next(self.explosion_animation_tank, None)
+            if next_image is not None:
+                self.image = next_image
+                return
+            else:
+                self.remove(*self.groups())
+                del self
+                return
+
         if self.duration <= 0:
             self.terminate()
             return
-        self.rect.y += self.vel_y
+        # self.rect.y += self.vel_y
+        # self.rect.x += self.vel_x
         collides = pygame.sprite.spritecollide(self,
                                                pygame.sprite.Group(game.players, game.blocks, game.enemies), False)
         if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
             self.rect.y -= self.vel_y
             self.choose_new_direction()
-        self.rect.x += self.vel_x
         collides = pygame.sprite.spritecollide(self,
                                                pygame.sprite.Group(game.players, game.blocks, game.enemies), False)
         if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
@@ -509,7 +553,7 @@ class Bullet(pygame.sprite.Sprite):
         super().__init__(*groups)
         self.flag_move = 0
 
-        self.explosion_animation = iter([load_image('bullet_explosion_%d' % i, (50, 50), -1) for i in range(3)])
+        self.explosion_animation = iter([load_image('bullet_explosion_%d' % i, (50, 50), -1) for i in range(4)])
         self.start_terminate = False
 
         self.owner = owner
@@ -607,7 +651,7 @@ class Shield(pygame.sprite.Sprite):
     def update(self, *args):
         self.rect.x = self.tank.rect.x - 5
         self.rect.y = self.tank.rect.y - 5
-        if time.time() - self.animation_time > 0.15:
+        if time.time() - self.animation_time > 0.08:
             self.animation_time = time.time()
             self.image = next(self.animation)
 
