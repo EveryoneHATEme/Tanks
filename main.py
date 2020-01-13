@@ -41,10 +41,14 @@ class Game:
             self.bullets = pygame.sprite.Group()
             self.blocks = pygame.sprite.Group()
             self.players = pygame.sprite.Group()
-            self.iceblocks = pygame.sprite.Group()
+            self.ice_blocks = pygame.sprite.Group()
             self.grass_blocks = pygame.sprite.Group()
             self.bonuses = pygame.sprite.Group()
             self.shields = pygame.sprite.Group()
+            self.blocks_around_base = list()
+            self.base_protected = False
+            self.base_protection_duration = 10
+            self.base_protection_start_time = time.time()
             self.level = 1
             self.screen = pygame.display.set_mode(WINDOW_SIZE)
             if self.fullscreen_mode:
@@ -55,7 +59,6 @@ class Game:
             self.bonus_time = time.time()
 
     def main_loop(self):
-        self.run = True
         while self.run:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -70,6 +73,8 @@ class Game:
                     player.check_controls(event)
             self.enemies.update()
             self.bullets.update()
+            if self.base_protected and (time.time() - self.base_protection_start_time) >= self.base_protection_duration:
+                self.make_base_unprotected()
             self.blocks.update()
             self.players.update()
             self.create_bonus()
@@ -116,7 +121,7 @@ class Game:
         canvas = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
         canvas.fill((0, 0, 0))
         self.blocks.draw(canvas)
-        self.iceblocks.draw(canvas)
+        self.ice_blocks.draw(canvas)
         self.players.draw(canvas)
         self.enemies.draw(canvas)
         self.bullets.draw(canvas)
@@ -137,27 +142,31 @@ class Game:
         """
 
         _map, enemies_amount = read_map(filename)
-        self.iceblocks.empty()
+        self.ice_blocks.empty()
         self.blocks.empty()
         self.grass_blocks.empty()
         self.bullets.empty()
         self.enemies.empty()
         self.players.empty()
         self.spawning_tanks.empty()
+        self.bonuses.empty()
 
         for i in range(len(_map)):
             for j in range(len(_map[i])):
                 if _map[i][j] == 1:
-                    self.blocks.add(BrickWall(j * CELL_SIZE, i * CELL_SIZE))
+                    block = BrickWall(j * CELL_SIZE, i * CELL_SIZE)
+                    self.blocks.add(block)
+                    if i in range(23, 26):
+                        if j in range(11, 15):
+                            self.blocks_around_base.append(block)
                 elif _map[i][j] == 2:
                     self.blocks.add(StrongBrickWall(j * CELL_SIZE, i * CELL_SIZE))
                 elif _map[i][j] == 3:
                     self.blocks.add(WaterWall(j * CELL_SIZE, i * CELL_SIZE))
                 elif _map[i][j] == 4:
-                    self.iceblocks.add(IceWall(j * CELL_SIZE, i * CELL_SIZE))
+                    self.ice_blocks.add(IceWall(j * CELL_SIZE, i * CELL_SIZE))
                 elif _map[i][j] == 5:
                     self.grass_blocks.add(GrassWall(j * CELL_SIZE, i * CELL_SIZE))
-
         self.spawning_tanks.add(Player(CELL_SIZE * 8, CELL_SIZE * 24, 90, self, self.players))
         self.enemy_list = [0 for _ in range(enemies_amount[0])] +\
                           [1 for _ in range(enemies_amount[1])] +\
@@ -167,11 +176,13 @@ class Game:
         del self.enemy_list[20:]
 
     def create_bonus(self):
-        if (time.time() - self.bonus_time) >= 3:
+        """TODO: Создавать бонусы при уничтожении бонусного танка, а не по времени"""
+        if (time.time() - self.bonus_time) >= 1:
             self.bonus_time = time.time()
             if randint(0, 1) == 0:
                 num = randint(0, 5)
-                x, y = randint(0, WINDOW_SIZE[0] - 32), randint(0, WINDOW_SIZE[0] - 32)
+                x, y = randint(0, PLAYGROUND_WIDTH - CELL_SIZE * 2),\
+                    randint(0, PLAYGROUND_WIDTH - CELL_SIZE * 2)
                 if not num:
                     self.bonuses.add(BonusStar(x, y))
                 elif num == 1:
@@ -185,8 +196,29 @@ class Game:
                 elif num == 5:
                     self.bonuses.add(BonusTank(x, y))
 
-    def bonus_handler(self):
-        pass
+    def make_base_protected(self):
+        new_blocks = list()
+        for block in self.blocks_around_base:
+            if block in self.blocks.sprites():
+                strong_block = StrongBrickWall(block.rect.x, block.rect.y)
+                self.blocks.remove(block)
+                self.blocks.add(strong_block)
+                new_blocks.append(strong_block)
+        self.blocks_around_base = new_blocks.copy()
+        self.base_protected = True
+        self.base_protection_duration = 10
+        self.base_protection_start_time = time.time()
+
+    def make_base_unprotected(self):
+        new_blocks = list()
+        for block in self.blocks_around_base:
+            if block in self.blocks.sprites():
+                _block = BrickWall(block.rect.x, block.rect.y)
+                self.blocks.remove(block)
+                self.blocks.add(_block)
+                new_blocks.append(_block)
+        self.blocks_around_base = new_blocks.copy()
+        self.base_protected = False
 
     def get_resolution(self):
         return ctypes.windll.user32.GetSystemMetrics(0), ctypes.windll.user32.GetSystemMetrics(1)
@@ -204,10 +236,12 @@ class Tank(pygame.sprite.Sprite):
         self.facing = UP
         self.animation = None
         self.durability = 1
+        self.lives = 1
         self.angle = 0
         self.stay = True
         self.bullet_limit = 1
         self.bullet_speed = 240
+        self.tier = 1
         self.immortal = True
         self.immortal_start_time = time.time()
         self.immortal_duration = 5
@@ -215,6 +249,9 @@ class Tank(pygame.sprite.Sprite):
                                      for i in range(8))
         self.spawn_duration = FPS
         self.spawn_count = 0
+        self.frozen = False
+        self.freeze_duration = 10
+        self.freeze_start_time = time.time()
         self.image = next(self.spawn_animation)
 
     def update(self, *args):
@@ -254,10 +291,7 @@ class Tank(pygame.sprite.Sprite):
             self.angle = 0
         else:
             self.stay = True
-        for bonus in pygame.sprite.spritecollide(self, pygame.sprite.Group(game.bonuses), 0):
-            self.bonuses[bonus] = time.time()
-            game.bonuses.remove(bonus)
-            bonus.terminate()
+        self.bonus_handler()
         self.change_angle()
         if self.animation and not self.stay:
             self.image = next(self.animation)
@@ -273,18 +307,62 @@ class Tank(pygame.sprite.Sprite):
                             self.game.shields.remove(shield)
                             break
 
-    def shoot(self):
-        bullets_count = 0
-        for bullet in game.bullets.sprites():
-            if bullet.owner is self:
-                bullets_count += 1
-            if bullets_count >= self.bullet_limit:
-                return
+    def bonus_handler(self):
+        for bonus in pygame.sprite.spritecollide(self, pygame.sprite.Group(game.bonuses), 0):
+            if isinstance(bonus, BonusHelmet):
+                self.make_immortal(10)
+            elif isinstance(bonus, BonusTank):
+                self.lives += 1
+            elif isinstance(bonus, BonusGrenade):
+                for enemy in self.game.enemies.sprites():
+                    enemy.terminate()
+            elif isinstance(bonus, BonusClock):
+                for enemy in self.game.enemies.sprites():
+                    enemy.make_frozen(10)
+            elif isinstance(bonus, BonusShovel):
+                self.game.make_base_protected()
+            elif isinstance(bonus, BonusStar):
+                if self.tier in range(1, 4):
+                    self.tier += 1
+                    if self.tier == 2:
+                        self.bullet_speed *= 2
+                        self.animation = cycle((load_image('tier2_tank', (self.cell_size, self.cell_size), -1),
+                                                load_image('tier2_tank_2', (self.cell_size, self.cell_size), -1)))
+                    elif self.tier == 3:
+                        self.bullet_limit = 2
+                        self.animation = cycle((load_image('tier3_tank', (self.cell_size, self.cell_size), -1),
+                                                load_image('tier3_tank_2', (self.cell_size, self.cell_size), -1)))
+                    elif self.tier == 4:
+                        self.durability = 2
+                        self.animation = cycle((load_image('tier4_tank', (self.cell_size, self.cell_size), -1),
+                                                load_image('tier4_tank_2', (self.cell_size, self.cell_size), -1)))
+            game.bonuses.remove(bonus)
+            bonus.terminate()
 
-        game.bullets.add(Bullet(self))
+    def make_immortal(self, duration):
+        self.immortal = True
+        self.immortal_duration = duration
+        self.immortal_start_time = time.time()
+
+    def make_frozen(self, duration):
+        self.frozen = True
+        self.freeze_duration = duration
+        self.freeze_start_time = time.time()
+
+    def shoot(self):
+        if not self.frozen:
+            bullets_count = 0
+            for bullet in game.bullets.sprites():
+                if bullet.owner is self:
+                    bullets_count += 1
+                if bullets_count >= self.bullet_limit:
+                    return
+
+            game.bullets.add(Bullet(self))
 
     def is_under_fire(self):
-        self.durability -= 1
+        if not self.immortal:
+            self.durability -= 1
 
     def change_angle(self):
         if self.vel_y == -self.velocity:
@@ -328,18 +406,23 @@ class Enemy(Tank):
         if self.durability <= 0:
             self.terminate()
             return
-        self.rect.y += self.vel_y
-        collides = pygame.sprite.spritecollide(self,
-                                               pygame.sprite.Group(game.players, game.blocks, game.enemies), False)
-        if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
-            self.rect.y -= self.vel_y
-            self.choose_new_direction()
-        self.rect.x += self.vel_x
-        collides = pygame.sprite.spritecollide(self,
-                                               pygame.sprite.Group(game.players, game.blocks, game.enemies), False)
-        if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
-            self.rect.x -= self.vel_x
-            self.choose_new_direction()
+        if not self.frozen:
+            self.rect.y += self.vel_y
+            collides = pygame.sprite.spritecollide(self,
+                                                   pygame.sprite.Group(game.players, game.blocks, game.enemies), False)
+            if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
+                self.rect.y -= self.vel_y
+                self.choose_new_direction()
+            self.rect.x += self.vel_x
+            collides = pygame.sprite.spritecollide(self,
+                                                   pygame.sprite.Group(game.players, game.blocks, game.enemies), False)
+            if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
+                self.rect.x -= self.vel_x
+                self.choose_new_direction()
+        else:
+            self.stay = True
+            if time.time() - self.freeze_start_time > self.freeze_duration:
+                self.frozen = False
         if randint(0, 7) == 0:
             self.shoot()
         self.change_angle()
@@ -502,7 +585,7 @@ class StrongBrickWall(Block):
         self.mask = pygame.mask.from_surface(self.image)
 
     def is_under_fire(self, bullet):
-        if bullet.level > 1:
+        if isinstance(bullet.owner, Player) and bullet.owner.tier == 4:
             self.terminate()
         bullet.terminate()
 
@@ -541,12 +624,9 @@ class Bullet(pygame.sprite.Sprite):
     def __init__(self, owner: Tank, *groups):
         super().__init__(*groups)
         self.flag_move = 0
-
         self.explosion_animation = iter([load_image('bullet_explosion_%d' % i, (50, 50), -1) for i in range(3)])
         self.start_terminate = False
-
         self.owner = owner
-        self.level = 1
         self.rect = pygame.Rect(0, 0, 17, 17)
         if owner.facing == LEFT:
             self.rect.center = owner.rect.midleft
