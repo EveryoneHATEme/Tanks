@@ -30,6 +30,7 @@ def load_image(name, size=None, color_key=None):
 
 class Game:
     def __init__(self):
+        global CELL_SIZE
         self.run = True
         self.fullscreen_mode = False
         Menu(self)
@@ -227,6 +228,18 @@ class Game:
 class Tank(pygame.sprite.Sprite):
     def __init__(self, x, y, velocity, game, *groups):
         super().__init__(*groups)
+
+        self.explosion_animation_tank = iter([
+                load_image('tank_explosion_0', (90, 90), -1),
+                load_image('tank_explosion_0', (90, 90), -1),
+                load_image('tank_explosion_0', (90, 90), -1),
+                load_image('tank_explosion_0', (90, 90), -1),
+                load_image('tank_explosion_1', (90, 90), -1),
+                load_image('tank_explosion_1', (90, 90), -1),
+                load_image('tank_explosion_1', (90, 90), -1),
+                load_image('tank_explosion_1', (90, 90), -1)])
+        self.start_tank_terminate = False
+
         self.game = game
         self.cell_size = CELL_SIZE * 2 - 10
         self.rect = pygame.Rect(x, y, self.cell_size, self.cell_size)
@@ -244,7 +257,7 @@ class Tank(pygame.sprite.Sprite):
         self.tier = 1
         self.immortal = True
         self.immortal_start_time = time.time()
-        self.immortal_duration = 5
+        self.immortal_duration = 3
         self.spawn_animation = cycle(load_image(f'spawn_animation_{i}', (self.cell_size, self.cell_size), -1)
                                      for i in range(8))
         self.spawn_duration = FPS
@@ -255,6 +268,18 @@ class Tank(pygame.sprite.Sprite):
         self.image = next(self.spawn_animation)
 
     def update(self, *args):
+        if self.start_tank_terminate:
+            self.rect.centerx -= 20
+            self.rect.centery -= 20
+
+            next_image = next(self.explosion_animation_tank, None)
+            if next_image is not None:
+                self.image = next_image
+                return
+            else:
+                self.remove(*self.groups())
+                del self
+                return
         if self.spawn_animation is not None:
             if self.spawn_count >= self.spawn_duration:
                 self.image = next(self.animation)
@@ -266,9 +291,9 @@ class Tank(pygame.sprite.Sprite):
         if self.durability <= 0:
             self.terminate()
             return
+
         self.rect.y += self.vel_y
-        collides = pygame.sprite.spritecollide(self,
-                                               pygame.sprite.Group(game.players, game.blocks, game.enemies), 0)
+        collides = pygame.sprite.spritecollide(self, pygame.sprite.Group(game.players, game.blocks, game.enemies), 0)
         if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
             self.rect.y -= self.vel_y
         self.rect.x += self.vel_x
@@ -379,8 +404,7 @@ class Tank(pygame.sprite.Sprite):
             self.angle = 270
 
     def terminate(self):
-        self.remove(*self.groups())
-        del self
+        self.start_tank_terminate = True
 
 
 class Enemy(Tank):
@@ -395,6 +419,17 @@ class Enemy(Tank):
         self.immortal = False
 
     def update(self, *args):
+        if self.start_tank_terminate:
+            self.rect.centerx -= 6
+            self.rect.centery -= 6
+            next_image = next(self.explosion_animation_tank, None)
+            if next_image is not None:
+                self.image = next_image
+                return
+            else:
+                self.remove(*self.groups())
+                del self
+                return
         if self.spawn_animation is not None:
             if self.spawn_count >= self.spawn_duration:
                 self.image = next(self.animation)
