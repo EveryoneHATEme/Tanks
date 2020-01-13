@@ -37,6 +37,7 @@ class Game:
             self.enemy_list = []
             self.enemy_positions = cycle([(CELL_SIZE * 12, 0), (CELL_SIZE * 24, 0), (0, 0)])
             self.enemies = pygame.sprite.Group()
+            self.spawning_tanks = pygame.sprite.Group()
             self.bullets = pygame.sprite.Group()
             self.blocks = pygame.sprite.Group()
             self.players = pygame.sprite.Group()
@@ -73,6 +74,17 @@ class Game:
             self.players.update()
             self.create_bonus()
             self.shields.update()
+            self.spawning_tanks.update()
+            tanks_to_spawn = []
+            for tank in self.spawning_tanks.sprites():
+                if tank.spawn_animation is None:
+                    tanks_to_spawn.append(tank)
+            for tank in tanks_to_spawn:
+                if isinstance(tank, Player):
+                    self.players.add(tank)
+                elif isinstance(tank, Enemy):
+                    self.enemies.add(tank)
+                self.spawning_tanks.remove(tank)
             if time.time() - self.time > (190 - self.level * 4 - (len(self.players) - 1) * 20) // 60 and\
                     len(self.enemy_list) > 0 and len(self.enemies.sprites()) < 4 or len(self.enemy_list) == 20:
                 self.spawn_enemy()
@@ -89,13 +101,13 @@ class Game:
         coords = next(self.enemy_positions)
         enemy_type = self.enemy_list.pop(0)
         if enemy_type == 0:
-            self.enemies.add(SimpleEnemy(*coords, self))
+            self.spawning_tanks.add(SimpleEnemy(*coords, self))
         elif enemy_type == 1:
-            self.enemies.add(QuickTank(*coords, self))
+            self.spawning_tanks.add(QuickTank(*coords, self))
         elif enemy_type == 2:
-            self.enemies.add(QuickFireTank(*coords, self))
+            self.spawning_tanks.add(QuickFireTank(*coords, self))
         elif enemy_type == 3:
-            self.enemies.add(StrongTank(*coords, self))
+            self.spawning_tanks.add(StrongTank(*coords, self))
 
     def render(self):
         """
@@ -110,6 +122,7 @@ class Game:
         self.bullets.draw(canvas)
         self.grass_blocks.draw(canvas)
         self.shields.draw(canvas)
+        self.spawning_tanks.draw(canvas)
         self.bonuses.draw(canvas)
         self.screen.fill((192, 192, 192))
         sc_width, sc_height = self.screen.get_size()
@@ -130,6 +143,7 @@ class Game:
         self.bullets.empty()
         self.enemies.empty()
         self.players.empty()
+        self.spawning_tanks.empty()
 
         for i in range(len(_map)):
             for j in range(len(_map[i])):
@@ -144,7 +158,7 @@ class Game:
                 elif _map[i][j] == 5:
                     self.grass_blocks.add(GrassWall(j * CELL_SIZE, i * CELL_SIZE))
 
-        self.players.add(Player(CELL_SIZE * 8, CELL_SIZE * 24, 90, self, self.players))
+        self.spawning_tanks.add(Player(CELL_SIZE * 8, CELL_SIZE * 24, 90, self, self.players))
         self.enemy_list = [0 for _ in range(enemies_amount[0])] +\
                           [1 for _ in range(enemies_amount[1])] +\
                           [2 for _ in range(enemies_amount[2])] +\
@@ -186,7 +200,6 @@ class Tank(pygame.sprite.Sprite):
         self.rect = pygame.Rect(x, y, self.cell_size, self.cell_size)
         self.velocity = velocity / FPS
         self.vel_x, self.vel_y = -self.velocity, 0
-        self.image = pygame.Surface((self.cell_size, self.cell_size))
         self.bonuses = dict()
         self.facing = UP
         self.animation = None
@@ -198,8 +211,21 @@ class Tank(pygame.sprite.Sprite):
         self.immortal = True
         self.immortal_start_time = time.time()
         self.immortal_duration = 5
+        self.spawn_animation = cycle(load_image(f'spawn_animation_{i}', (self.cell_size, self.cell_size), -1)
+                                     for i in range(8))
+        self.spawn_duration = FPS
+        self.spawn_count = 0
+        self.image = next(self.spawn_animation)
 
     def update(self, *args):
+        if self.spawn_animation is not None:
+            if self.spawn_count >= self.spawn_duration:
+                self.image = next(self.animation)
+                self.spawn_animation = None
+            else:
+                self.image = next(self.spawn_animation)
+                self.spawn_count += 1
+                return
         if self.durability <= 0:
             self.terminate()
             return
@@ -284,7 +310,6 @@ class Enemy(Tank):
         super().__init__(x, y, velocity, game, *groups)
         self.animation = cycle((load_image('enemy_tier1_tank', (self.cell_size, self.cell_size), -1),
                                 load_image('enemy_tier1_tank_2', (self.cell_size, self.cell_size), -1)))
-        self.image = next(self.animation)
         self.mask = pygame.mask.from_surface(self.image)
         self.reward = 0
         self.stay = False
@@ -292,6 +317,14 @@ class Enemy(Tank):
         self.immortal = False
 
     def update(self, *args):
+        if self.spawn_animation is not None:
+            if self.spawn_count >= self.spawn_duration:
+                self.image = next(self.animation)
+                self.spawn_animation = None
+            else:
+                self.image = next(self.spawn_animation)
+                self.spawn_count += 1
+                return
         if self.durability <= 0:
             self.terminate()
             return
