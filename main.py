@@ -61,7 +61,7 @@ class Game:
             self.base_protection_count = 0
             self.game_over_group = pygame.sprite.Group()
             self.game_over_sprite = pygame.sprite.Sprite(self.game_over_group)
-            self.game_over_sprite.image = load_image('game_over', (31, 15), -1)
+            self.game_over_sprite.image = load_image('game_over', (100, 50), -1)
             self.game_over_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - 15, PLAYGROUND_WIDTH, 31, 15)
             self.pause = False
             self.pause_group = pygame.sprite.Group()
@@ -359,10 +359,7 @@ class Game:
 
 class Tank(pygame.sprite.Sprite):
     def __init__(self, x, y, velocity, game, *groups):
-        # self.move_sound = pygame.mixer.Sound('data/music/move.ogg')
-        # self.stop_sound = pygame.mixer.Sound('data/music/stop.ogg')
-        # self.stop_sound.play()
-        # self.stop_sound.set_volume(0.5)
+        self.player_ex = pygame.mixer.Sound('data/music/explotion_player.ogg')
         super().__init__(*groups)
         self.start_tank_terminate = False
         self.game = game
@@ -395,6 +392,7 @@ class Tank(pygame.sprite.Sprite):
 
     def update(self, *args):
         if self.start_tank_terminate:
+            self.player_ex.play()
             self.game.explosions.add(TankExplosion(self))
             if isinstance(self, Player):
                 lives = self.lives - 1
@@ -561,6 +559,8 @@ class Tank(pygame.sprite.Sprite):
 
 class Enemy(Tank):
     def __init__(self, x, y, velocity, game, bonus: bool, *groups):
+        self.enemy_ex = pygame.mixer.Sound('data/music/explotion_enemy.ogg')
+
         super().__init__(x, y, velocity, game, *groups)
         self.animation = cycle((load_image('enemy_tier1_tank', (self.cell_size, self.cell_size), -1),
                                 load_image('enemy_tier1_tank_2', (self.cell_size, self.cell_size), -1)))
@@ -574,6 +574,7 @@ class Enemy(Tank):
 
     def update(self, *args):
         if self.start_tank_terminate:
+            self.enemy_ex.play()
             self.game.explosions.add(TankExplosion(self))
             self.remove(*self.groups())
             del self
