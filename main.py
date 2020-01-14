@@ -30,12 +30,17 @@ def load_image(name, size=None, color_key=None):
 
 class Game:
     def __init__(self):
-        global CELL_SIZE
         self.run = True
+        self.game_over = False
         self.fullscreen_mode = False
+        self.simple_enemy_texture = load_image('enemy_tier1_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
+        self.quick_enemy_texture = load_image('enemy_tier2_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
+        self.quickfire_enemy_texture = load_image('enemy_tier3_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
+        self.strong_enemy_texture = load_image('enemy_tier4_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), (0, 0, 0))
         Menu(self)
         if self.run:
             self.enemy_list = []
+            self.enemies_amount = tuple()
             self.enemy_positions = cycle([(CELL_SIZE * 12, 0), (CELL_SIZE * 24, 0), (0, 0)])
             self.enemies = pygame.sprite.Group()
             self.spawning_tanks = pygame.sprite.Group()
@@ -50,6 +55,11 @@ class Game:
             self.base_protected = False
             self.base_protection_duration = 10
             self.base_protection_start_time = time.time()
+            self.game_over_group = pygame.sprite.Group()
+            self.game_over_sprite = pygame.sprite.Sprite(self.game_over_group)
+            self.game_over_sprite.image = load_image('game_over', (31, 15), -1)
+            self.game_over_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2, PLAYGROUND_WIDTH,
+                                                     31, 15)
             self.level = 1
             self.screen = pygame.display.set_mode(WINDOW_SIZE)
             if self.fullscreen_mode:
@@ -70,8 +80,9 @@ class Game:
                     else:
                         pygame.display.set_mode(self.get_resolution(), pygame.FULLSCREEN)
                     self.fullscreen_mode = not self.fullscreen_mode
-                for player in self.players.sprites():
-                    player.check_controls(event)
+                if not self.game_over:
+                    for player in self.players.sprites():
+                        player.check_controls(event)
             self.enemies.update()
             self.bullets.update()
             if self.base_protected and (time.time() - self.base_protection_start_time) >= self.base_protection_duration:
@@ -95,11 +106,15 @@ class Game:
                     len(self.enemy_list) > 0 and len(self.enemies.sprites()) < 4 or len(self.enemy_list) == 20:
                 self.spawn_enemy()
                 self.time = time.time()
-            if not any(x.alive for x in self.players.sprites()):
-                self.run = False
+            if len(self.players.sprites()) == 0:
+                self.game_over = True
+            #if not any(x.alive for x in self.players.sprites()):
+            #    self.run = False
             if len(self.enemy_list) == 0 and len(self.enemies.sprites()) == 0:
                 self.level += 1
                 self.init_level(f'map{self.level}.txt')
+            self.enemies_amount = (self.enemy_list.count(0), self.enemy_list.count(1),
+                                   self.enemy_list.count(2), self.enemy_list.count(3))
             self.render()
             self.clock.tick(FPS)
 
@@ -130,10 +145,76 @@ class Game:
         self.shields.draw(canvas)
         self.spawning_tanks.draw(canvas)
         self.bonuses.draw(canvas)
+        if self.game_over:
+            self.game_over_group.draw(canvas)
+            self.game_over_sprite.rect.y -= 5
         self.screen.fill((192, 192, 192))
         sc_width, sc_height = self.screen.get_size()
         self.screen.blit(canvas, (sc_width // 32,
                                   sc_height // 2 - canvas.get_height() // 2))
+        font = pygame.font.SysFont('arial', 21, bold=True)
+        label = font.render(f'УРОВЕНЬ: {self.level}', True, (0, 0, 0))
+        rect = pygame.Rect(sc_width // 32 + canvas.get_width() + 5, sc_height // 2 - canvas.get_height() // 2,
+                           CELL_SIZE * 8, label.get_height())
+        pygame.draw.rect(self.screen, (92, 157, 124), rect)
+        pygame.draw.rect(self.screen, (0, 0, 0), rect, 2)
+        self.screen.blit(label, (rect.left + rect.width // 2 - label.get_width() // 2,
+                                 rect.top + rect.height // 2 - label.get_height() // 2))
+        rect = pygame.Rect(rect.left, rect.bottom + 5, CELL_SIZE * 8, CELL_SIZE * 8)
+        if self.enemies_amount[0] == 0:
+            pygame.draw.rect(self.screen, (96, 192, 96), (rect.left, rect.top, rect.width, CELL_SIZE * 2))
+        else:
+            pygame.draw.rect(self.screen, (192, 96, 96), (rect.left, rect.top, rect.width, CELL_SIZE * 2))
+        self.screen.blit(self.simple_enemy_texture,
+                         (rect.left + CELL_SIZE - self.simple_enemy_texture.get_width() // 2,
+                          rect.top + CELL_SIZE - self.simple_enemy_texture.get_height() // 2))
+        pygame.draw.line(self.screen, (0, 0, 0), (rect.left, rect.top + CELL_SIZE * 2),
+                         (rect.right, rect.top + CELL_SIZE * 2), 2)
+        label = font.render(f'{self.enemies_amount[0]}', True, (0, 0, 0))
+        self.screen.blit(label, (rect.left + CELL_SIZE * 7 - label.get_width() // 2,
+                                 rect.top + CELL_SIZE - label.get_height() // 2))
+        if self.enemies_amount[1] == 0:
+            pygame.draw.rect(self.screen, (96, 192, 96), (rect.left, rect.top + CELL_SIZE * 2,
+                                                          rect.width, CELL_SIZE * 2))
+        else:
+            pygame.draw.rect(self.screen, (192, 96, 96), (rect.left, rect.top + CELL_SIZE * 2,
+                                                          rect.width, CELL_SIZE * 2))
+        self.screen.blit(self.quick_enemy_texture,
+                         (rect.left + CELL_SIZE - self.quick_enemy_texture.get_width() // 2,
+                          rect.top + CELL_SIZE * 3 - self.quick_enemy_texture.get_height() // 2))
+        pygame.draw.line(self.screen, (0, 0, 0), (rect.left, rect.top + CELL_SIZE * 4),
+                         (rect.right, rect.top + CELL_SIZE * 4), 2)
+        label = font.render(f'{self.enemies_amount[1]}', True, (0, 0, 0))
+        self.screen.blit(label, (rect.left + CELL_SIZE * 7 - label.get_width() // 2,
+                                 rect.top + CELL_SIZE * 3 - label.get_height() // 2))
+        if self.enemies_amount[2] == 0:
+            pygame.draw.rect(self.screen, (96, 192, 96), (rect.left, rect.top + CELL_SIZE * 4,
+                                                          rect.width, CELL_SIZE * 2))
+        else:
+            pygame.draw.rect(self.screen, (192, 96, 96), (rect.left, rect.top + CELL_SIZE * 4,
+                                                          rect.width, CELL_SIZE * 2))
+        self.screen.blit(self.quickfire_enemy_texture,
+                         (rect.left + CELL_SIZE - self.quickfire_enemy_texture.get_width() // 2,
+                          rect.top + CELL_SIZE * 5 - self.quick_enemy_texture.get_height() // 2))
+        pygame.draw.line(self.screen, (0, 0, 0), (rect.left, rect.top + CELL_SIZE * 6),
+                         (rect.right, rect.top + CELL_SIZE * 6), 2)
+        label = font.render(f'{self.enemies_amount[2]}', True, (0, 0, 0))
+        self.screen.blit(label, (rect.left + CELL_SIZE * 7 - label.get_width() // 2,
+                                 rect.top + CELL_SIZE * 5 - label.get_height() // 2))
+        if self.enemies_amount[3] == 0:
+            pygame.draw.rect(self.screen, (96, 192, 96), (rect.left, rect.top + CELL_SIZE * 6,
+                                                          rect.width, CELL_SIZE * 2))
+        else:
+            pygame.draw.rect(self.screen, (192, 96, 96), (rect.left, rect.top + CELL_SIZE * 6,
+                                                          rect.width, CELL_SIZE * 2))
+        self.screen.blit(self.strong_enemy_texture,
+                         (rect.left + CELL_SIZE - self.strong_enemy_texture.get_width() // 2,
+                          rect.top + CELL_SIZE * 7 - self.strong_enemy_texture.get_height() // 2))
+        label = font.render(f'{self.enemies_amount[3]}', True, (0, 0, 0))
+        self.screen.blit(label, (rect.left + CELL_SIZE * 7 - label.get_width() // 2,
+                                 rect.top + CELL_SIZE * 7 - label.get_height() // 2))
+        pygame.draw.rect(self.screen, (0, 0, 0), rect, 2)
+
         pygame.display.flip()
 
     def init_level(self, filename):
@@ -142,8 +223,7 @@ class Game:
         инициализируем и добавляем в список стены
         """
 
-        _map, enemies_amount = read_map(filename)
-
+        _map, self.enemies_amount = read_map(filename)
         self.ice_blocks.empty()
         self.blocks.empty()
         self.grass_blocks.empty()
@@ -172,11 +252,12 @@ class Game:
                     self.ice_blocks.add(IceWall(j * CELL_SIZE, i * CELL_SIZE))
                 elif _map[i][j] == 5:
                     self.grass_blocks.add(GrassWall(j * CELL_SIZE, i * CELL_SIZE))
-        self.spawning_tanks.add(Player(CELL_SIZE * 8, CELL_SIZE * 24, 90, self, self.players))
-        self.enemy_list = [0 for _ in range(enemies_amount[0])] +\
-                          [1 for _ in range(enemies_amount[1])] +\
-                          [2 for _ in range(enemies_amount[2])] +\
-                          [3 for _ in range(enemies_amount[3])]
+
+        self.spawning_tanks.add(Player(CELL_SIZE * 8, CELL_SIZE * 24, self, self.players))
+        self.enemy_list = [0 for _ in range(self.enemies_amount[0])] +\
+                          [1 for _ in range(self.enemies_amount[1])] +\
+                          [2 for _ in range(self.enemies_amount[2])] +\
+                          [3 for _ in range(self.enemies_amount[3])]
         shuffle(self.enemy_list)
         del self.enemy_list[20:]
 
@@ -546,7 +627,7 @@ class Enemy(Tank):
 
 class SimpleEnemy(Enemy):
     def __init__(self, x, y, game, *groups):
-        super().__init__(x, y, 30, game, *groups)
+        super().__init__(x, y, 60, game, *groups)
 
 
 class QuickTank(Enemy):
@@ -564,6 +645,10 @@ class QuickFireTank(Enemy):
         super().__init__(x, y, 60, game, *groups)
         self.bullet_speed *= 2
         self.reward = 300
+        self.animation = cycle((load_image('enemy_tier3_tank', (self.cell_size, self.cell_size), -1),
+                                load_image('enemy_tier3_tank_2', (self.cell_size, self.cell_size), -1)))
+        self.image = next(self.animation)
+        self.mask = pygame.mask.from_surface(self.image)
 
 
 class StrongTank(Enemy):
@@ -571,15 +656,21 @@ class StrongTank(Enemy):
         super().__init__(x, y, 60, game, *groups)
         self.reward = 400
         self.durability = 4
+        self.animation = cycle((load_image('enemy_tier4_tank', (self.cell_size, self.cell_size), -1),
+                                load_image('enemy_tier4_tank_2', (self.cell_size, self.cell_size), -1)))
+        self.image = next(self.animation)
+        self.mask = pygame.mask.from_surface(self.image)
 
 
 class Player(Tank):
-    def __init__(self, x, y, velocity, game, *group):
-        super().__init__(x, y, velocity, game, *group)
+    def __init__(self, x, y, game, *groups):
+        super().__init__(x, y, 90, game, *groups)
         self.animation = cycle((load_image('tier1_tank', (self.cell_size, self.cell_size), -1),
                                load_image('tier1_tank_2', (self.cell_size, self.cell_size), -1)))
         self.image = next(self.animation)
         self.score = 0
+        if not hasattr(self, 'lives'):
+            self.lives = 2
 
     def check_controls(self, event: pygame.event.EventType):
         if pygame.key.get_pressed()[pygame.K_LEFT]:
@@ -600,30 +691,36 @@ class Player(Tank):
         if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
             self.shoot()
 
-    def respawn(self):
-        self.cell_size = CELL_SIZE * 2 - 10
-        self.rect = pygame.Rect(CELL_SIZE * 8, CELL_SIZE * 24, self.cell_size, self.cell_size)
-        self.game.spawning_tanks.add(self)
-        self.velocity = self.velocity_backup
-        self.vel_x, self.vel_y = 0, 0
-        self.facing = UP
-        self.durability = 1
-        self.angle = 0
-        self.stay = True
-        self.bullet_limit = 1
-        self.bullet_speed = 240
-        self.tier = 1
-        self.immortal = True
-        self.immortal_start_time = time.time()
-        self.immortal_duration = 3
-        self.animation = cycle((load_image('tier1_tank', (self.cell_size, self.cell_size), -1),
-                               load_image('tier1_tank_2', (self.cell_size, self.cell_size), -1)))
-        self.spawn_animation = cycle(load_image(f'spawn_animation_{i}', (self.cell_size, self.cell_size), -1)
-                                     for i in range(8))
-        self.spawn_duration = FPS
-        self.spawn_count = 0
-        self.image = next(self.spawn_animation)
-        self.start_tank_terminate = False
+    def terminate(self):
+        self.__init__(CELL_SIZE * 8, CELL_SIZE * 24, game, game.players)
+        self.lives -= 1
+        if self.lives <= -1:
+            super().terminate()
+
+    #def respawn(self):
+    #    self.cell_size = CELL_SIZE * 2 - 10
+    #    self.rect = pygame.Rect(CELL_SIZE * 8, CELL_SIZE * 24, self.cell_size, self.cell_size)
+    #    self.game.spawning_tanks.add(self)
+    #    self.velocity = self.velocity_backup
+    #    self.vel_x, self.vel_y = 0, 0
+    #    self.facing = UP
+    #    self.durability = 1
+    #    self.angle = 0
+    #    self.stay = True
+    #    self.bullet_limit = 1
+    #    self.bullet_speed = 240
+    #    self.tier = 1
+    #    self.immortal = True
+    #    self.immortal_start_time = time.time()
+    #    self.immortal_duration = 3
+    #    self.animation = cycle((load_image('tier1_tank', (self.cell_size, self.cell_size), -1),
+    #                           load_image('tier1_tank_2', (self.cell_size, self.cell_size), -1)))
+    #    self.spawn_animation = cycle(load_image(f'spawn_animation_{i}', (self.cell_size, self.cell_size), -1)
+    #                                 for i in range(8))
+    #    self.spawn_duration = FPS
+    #    self.spawn_count = 0
+    #    self.image = next(self.spawn_animation)
+    #    self.start_tank_terminate = False
 
 
 class Block(pygame.sprite.Sprite):
