@@ -95,7 +95,7 @@ class Game:
                     len(self.enemy_list) > 0 and len(self.enemies.sprites()) < 4 or len(self.enemy_list) == 20:
                 self.spawn_enemy()
                 self.time = time.time()
-            if not any(x.durability for x in self.players.sprites()):
+            if not any(x.alive for x in self.players.sprites()):
                 self.run = False
             if len(self.enemy_list) == 0 and len(self.enemies.sprites()) == 0:
                 self.level += 1
@@ -143,6 +143,7 @@ class Game:
         """
 
         _map, enemies_amount = read_map(filename)
+
         self.ice_blocks.empty()
         self.blocks.empty()
         self.grass_blocks.empty()
@@ -151,6 +152,9 @@ class Game:
         self.players.empty()
         self.spawning_tanks.empty()
         self.bonuses.empty()
+        self.shields.empty()
+        self.blocks_around_base = list()
+        self.base_protected = False
 
         for i in range(len(_map)):
             for j in range(len(_map[i])):
@@ -244,6 +248,7 @@ class Tank(pygame.sprite.Sprite):
         self.cell_size = CELL_SIZE * 2 - 10
         self.rect = pygame.Rect(x, y, self.cell_size, self.cell_size)
         self.velocity = velocity / FPS
+        self.velocity_backup = self.velocity
         self.vel_x, self.vel_y = -self.velocity, 0
         self.bonuses = dict()
         self.facing = UP
@@ -255,6 +260,7 @@ class Tank(pygame.sprite.Sprite):
         self.bullet_limit = 1
         self.bullet_speed = 240
         self.tier = 1
+        self._alive = True
         self.immortal = True
         self.immortal_start_time = time.time()
         self.immortal_duration = 3
@@ -277,9 +283,16 @@ class Tank(pygame.sprite.Sprite):
                 self.image = next_image
                 return
             else:
-                self.remove(*self.groups())
-                del self
-                return
+                if isinstance(self, Player):
+                    if self.lives >= 2:
+                        self.lives -= 1
+                        self.respawn()
+                    else:
+                        self._alive = False
+                else:
+                    self.remove(*self.groups())
+                    del self
+                    return
         if self.spawn_animation is not None:
             if self.spawn_count >= self.spawn_duration:
                 self.image = next(self.animation)
@@ -586,6 +599,31 @@ class Player(Tank):
             self.vel_y = 0
         if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
             self.shoot()
+
+    def respawn(self):
+        self.cell_size = CELL_SIZE * 2 - 10
+        self.rect = pygame.Rect(CELL_SIZE * 8, CELL_SIZE * 24, self.cell_size, self.cell_size)
+        self.game.spawning_tanks.add(self)
+        self.velocity = self.velocity_backup
+        self.vel_x, self.vel_y = 0, 0
+        self.facing = UP
+        self.durability = 1
+        self.angle = 0
+        self.stay = True
+        self.bullet_limit = 1
+        self.bullet_speed = 240
+        self.tier = 1
+        self.immortal = True
+        self.immortal_start_time = time.time()
+        self.immortal_duration = 3
+        self.animation = cycle((load_image('tier1_tank', (self.cell_size, self.cell_size), -1),
+                               load_image('tier1_tank_2', (self.cell_size, self.cell_size), -1)))
+        self.spawn_animation = cycle(load_image(f'spawn_animation_{i}', (self.cell_size, self.cell_size), -1)
+                                     for i in range(8))
+        self.spawn_duration = FPS
+        self.spawn_count = 0
+        self.image = next(self.spawn_animation)
+        self.start_tank_terminate = False
 
 
 class Block(pygame.sprite.Sprite):
