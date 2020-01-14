@@ -32,6 +32,9 @@ def load_image(name, size=None, color_key=None):
 
 class Game:
     def __init__(self):
+        self.music_lose = pygame.mixer.Sound('data/music/game_over.ogg')
+
+        self.game_over_flag = 0
         self.run = True
         self.game_over = False
         self.fullscreen_mode = False
@@ -132,6 +135,10 @@ class Game:
                     self.time = time.time()
                 if len(self.players.sprites()) == 0:
                     self.game_over = True
+                    self.play_game_over_music()
+                    pygame.mixer.music.load('data/music/game_over.ogg')
+                    pygame.mixer.music.play()
+
                 if len(self.enemy_list) == 0 and len(self.enemies.sprites()) == 0:
                     self.level += 1
                     self.save_config()
@@ -140,6 +147,12 @@ class Game:
                                        self.enemy_list.count(2), self.enemy_list.count(3))
             self.render()
             self.clock.tick(FPS)
+    def play_game_over_music(self):
+        if self.game_over_flag == 0:
+            self.music_lose.play()
+            self.game_over_flag = 1
+
+
 
     def load_config(self):
         with open('config.txt', mode='r', encoding='utf-8') as inf:
