@@ -359,6 +359,10 @@ class Game:
 
 class Tank(pygame.sprite.Sprite):
     def __init__(self, x, y, velocity, game, *groups):
+        # self.move_sound = pygame.mixer.Sound('data/music/move.ogg')
+        # self.stop_sound = pygame.mixer.Sound('data/music/stop.ogg')
+        # self.stop_sound.play()
+        # self.stop_sound.set_volume(0.5)
         super().__init__(*groups)
         self.start_tank_terminate = False
         self.game = game
@@ -428,19 +432,34 @@ class Tank(pygame.sprite.Sprite):
                                                pygame.sprite.Group(game.players, game.blocks, game.enemies), 0)
         if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
             self.rect.x -= self.vel_x
+        # if self.stay:
+        #     self.move_sound.stop()
+        #     self.stop_sound.play()
+        # else:
+        #     self.stop_sound.stop()
+        #     self.move_sound.play()
         if self.vel_x > 0:
+            # self.move_sound.stop()
+            # self.move_sound.play()
             self.facing = RIGHT
             self.angle = 270
         elif self.vel_x < 0:
+            # self.move_sound.stop()
+            # self.move_sound.play()
             self.facing = LEFT
             self.angle = 90
         elif self.vel_y > 0:
+            # self.move_sound.stop()
+            # self.move_sound.play()
             self.facing = DOWN
             self.angle = 180
         elif self.vel_y < 0:
+            # self.move_sound.stop()
+            # self.move_sound.play()
             self.facing = UP
             self.angle = 0
         else:
+            # self.move_sound.stop()
             self.stay = True
         self.bonus_handler()
         self.change_angle()
@@ -718,6 +737,8 @@ class StrongTank(Enemy):
 
 class Player(Tank):
     def __init__(self, x, y, game, *groups):
+        pygame.mixer.music.load('data/music/stop.mp3')
+        pygame.mixer.music.play()
         super().__init__(x, y, 90, game, *groups)
         self.animation = cycle((load_image('tier1_tank', (self.cell_size, self.cell_size), -1),
                                load_image('tier1_tank_2', (self.cell_size, self.cell_size), -1)))
@@ -818,6 +839,7 @@ class GrassWall(Block):
 
 class Bullet(pygame.sprite.Sprite):
     def __init__(self, owner: Tank, *groups):
+        self.ex_sound = pygame.mixer.Sound('data/music/explosion.ogg')
         super().__init__(*groups)
         self.flag_move = 0
         self.explosion_animation = iter([load_image('bullet_explosion_%d' % i, (50, 50), -1) for i in range(3)])
@@ -851,6 +873,8 @@ class Bullet(pygame.sprite.Sprite):
             self.rect.centerx += self.velocity_x
             self.rect.centery += self.velocity_y
         else:
+            # pygame.mixer.music.load('data/music/explosion.mp3')
+            # pygame.mixer.music.play()
             if self.flag_move == 0:
                 self.rect.centerx -= 15
                 self.rect.centery -= 15
@@ -899,6 +923,10 @@ class Bullet(pygame.sprite.Sprite):
             self.terminate()
 
     def terminate(self):
+        if isinstance(self.owner, Player):
+            self.ex_sound.play()
+        # pygame.mixer.music.load('data/music/explosion.mp3')
+        # pygame.mixer.music.play()
         self.start_terminate = True
 
 
@@ -985,6 +1013,9 @@ class BonusTank(Bonus):
 
 class Menu:
     def __init__(self, parent):
+        pygame.mixer.music.load('data/music/intro.mp3')
+        pygame.mixer.music.play()
+
         self.parent = parent
         self.width, self.height = WINDOW_SIZE
         pygame.font.init()
