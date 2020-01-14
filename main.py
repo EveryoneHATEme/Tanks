@@ -22,6 +22,8 @@ def load_image(name, size=None, color_key=None):
     if color_key is not None:
         if color_key == -1:
             color_key = image.get_at((0, 0))
+        elif len(color_key) == 2:
+            color_key = image.get_at(color_key)
         image.set_colorkey(color_key)
     else:
         image = image.convert_alpha()
@@ -37,6 +39,7 @@ class Game:
         self.quick_enemy_texture = load_image('enemy_tier2_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.quickfire_enemy_texture = load_image('enemy_tier3_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.strong_enemy_texture = load_image('enemy_tier4_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), (0, 0, 0))
+        self.level = 1
         Menu(self)
         if self.run:
             self.enemy_list = []
@@ -51,16 +54,31 @@ class Game:
             self.grass_blocks = pygame.sprite.Group()
             self.bonuses = pygame.sprite.Group()
             self.shields = pygame.sprite.Group()
+            self.explosions = pygame.sprite.Group()
             self.blocks_around_base = list()
             self.base_protected = False
-            self.base_protection_duration = 10
-            self.base_protection_start_time = time.time()
+            self.base_protection_duration = FPS * 10
+            self.base_protection_count = 0
             self.game_over_group = pygame.sprite.Group()
             self.game_over_sprite = pygame.sprite.Sprite(self.game_over_group)
             self.game_over_sprite.image = load_image('game_over', (31, 15), -1)
-            self.game_over_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2, PLAYGROUND_WIDTH,
-                                                     31, 15)
-            self.level = 1
+            self.game_over_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - 15, PLAYGROUND_WIDTH, 31, 15)
+            self.pause = False
+            self.pause_group = pygame.sprite.Group()
+            self.pause_sprite = pygame.sprite.Sprite(self.pause_group)
+            self.pause_sprite.image = load_image('pause', (39 * 2, 7 * 2), (0, 0, 0))
+            self.pause_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - 39, PLAYGROUND_WIDTH // 2 - 7, 39 * 2, 7 * 2)
+            self.flag_group = pygame.sprite.Group()
+            self.flag_sprite = pygame.sprite.Sprite(self.flag_group)
+            self.flag_sprite.image = load_image('flag', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
+            self.flag_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - CELL_SIZE + 5,
+                                                PLAYGROUND_WIDTH - CELL_SIZE * 2 + 5, 39 * 2, 7 * 2)
+            self.flag_sprite.mask = pygame.mask.from_surface(self.flag_sprite.image)
+            self.flag_broken_group = pygame.sprite.Group()
+            self.flag_broken_sprite = pygame.sprite.Sprite(self.flag_broken_group)
+            self.flag_broken_sprite.image = load_image('flag_broken', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
+            self.flag_broken_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - CELL_SIZE + 5,
+                                                       PLAYGROUND_WIDTH - CELL_SIZE * 2 + 5, 39 * 2, 7 * 2)
             self.screen = pygame.display.set_mode(WINDOW_SIZE)
             if self.fullscreen_mode:
                 pygame.display.set_mode(self.get_resolution(), pygame.FULLSCREEN)
@@ -80,60 +98,86 @@ class Game:
                     else:
                         pygame.display.set_mode(self.get_resolution(), pygame.FULLSCREEN)
                     self.fullscreen_mode = not self.fullscreen_mode
-                if not self.game_over:
+                elif event.type == pygame.KEYUP and event.key == pygame.K_ESCAPE:
+                    self.pause = not self.pause
+                if not self.pause:
                     for player in self.players.sprites():
                         player.check_controls(event)
-            self.enemies.update()
-            self.bullets.update()
-            if self.base_protected and (time.time() - self.base_protection_start_time) >= self.base_protection_duration:
-                self.make_base_unprotected()
-            self.blocks.update()
-            self.players.update()
-            self.create_bonus()
-            self.shields.update()
-            self.spawning_tanks.update()
-            tanks_to_spawn = []
-            for tank in self.spawning_tanks.sprites():
-                if tank.spawn_animation is None:
-                    tanks_to_spawn.append(tank)
-            for tank in tanks_to_spawn:
-                if isinstance(tank, Player):
-                    self.players.add(tank)
-                elif isinstance(tank, Enemy):
-                    self.enemies.add(tank)
-                self.spawning_tanks.remove(tank)
-            if time.time() - self.time > (190 - self.level * 4 - (len(self.players) - 1) * 20) // 60 and\
-                    len(self.enemy_list) > 0 and len(self.enemies.sprites()) < 4 or len(self.enemy_list) == 20:
-                self.spawn_enemy()
-                self.time = time.time()
-            if len(self.players.sprites()) == 0:
-                self.game_over = True
-            #if not any(x.alive for x in self.players.sprites()):
-            #    self.run = False
-            if len(self.enemy_list) == 0 and len(self.enemies.sprites()) == 0:
-                self.level += 1
-                self.init_level(f'map{self.level}.txt')
-            self.enemies_amount = (self.enemy_list.count(0), self.enemy_list.count(1),
-                                   self.enemy_list.count(2), self.enemy_list.count(3))
+            if not self.pause:
+                self.enemies.update()
+                self.bullets.update()
+                if self.base_protected:
+                    if self.base_protection_count >= self.base_protection_duration:
+                        self.make_base_unprotected()
+                    else:
+                        self.base_protection_count += 1
+                self.blocks.update()
+                self.players.update()
+                self.shields.update()
+                self.spawning_tanks.update()
+                self.explosions.update()
+                tanks_to_spawn = []
+                for tank in self.spawning_tanks.sprites():
+                    if tank.spawn_animation is None:
+                        tanks_to_spawn.append(tank)
+                for tank in tanks_to_spawn:
+                    if isinstance(tank, Player):
+                        self.players.add(tank)
+                    elif isinstance(tank, Enemy):
+                        self.enemies.add(tank)
+                    self.spawning_tanks.remove(tank)
+                if time.time() - self.time > (190 - self.level * 4 - (len(self.players) - 1) * 20) // 60 and\
+                        len(self.enemy_list) > 0 and len(self.enemies.sprites()) < 4 or len(self.enemy_list) == 20:
+                    self.spawn_enemy()
+                    self.time = time.time()
+                if len(self.players.sprites()) == 0:
+                    self.game_over = True
+                if len(self.enemy_list) == 0 and len(self.enemies.sprites()) == 0:
+                    self.level += 1
+                    self.save_config()
+                    self.init_level(f'map{self.level}.txt')
+                self.enemies_amount = (self.enemy_list.count(0), self.enemy_list.count(1),
+                                       self.enemy_list.count(2), self.enemy_list.count(3))
             self.render()
             self.clock.tick(FPS)
+
+    def load_config(self):
+        with open('config.txt', mode='r', encoding='utf-8') as inf:
+            text = inf.readlines()
+            for line in text:
+                key, value = line.split(':')
+                key, value = key.strip(), value.strip()
+                if key == 'level':
+                    self.level = int(value)
+
+    def save_config(self):
+        with open('config.txt', mode='r', encoding='utf-8') as inf:
+            new_config = []
+            text = inf.readlines()
+            for line in text:
+                key, value = line.split(':')
+                key, value = key.strip(), value.strip()
+                if key == 'level':
+                    new_config.append(F'{key}: {self.level}')
+                else:
+                    new_config.append(F'{key}: {value}')
+        with open('config.txt', mode='w', encoding='utf-8') as outf:
+            outf.write('\n'.join(new_config))
 
     def spawn_enemy(self):
         coords = next(self.enemy_positions)
         enemy_type = self.enemy_list.pop(0)
+        bonus = True if sum(self.enemies_amount) in [4, 11, 18] else False
         if enemy_type == 0:
-            self.spawning_tanks.add(SimpleEnemy(*coords, self))
+            self.spawning_tanks.add(SimpleEnemy(*coords, self, bonus))
         elif enemy_type == 1:
-            self.spawning_tanks.add(QuickTank(*coords, self))
+            self.spawning_tanks.add(QuickTank(*coords, self, bonus))
         elif enemy_type == 2:
-            self.spawning_tanks.add(QuickFireTank(*coords, self))
+            self.spawning_tanks.add(QuickFireTank(*coords, self, bonus))
         elif enemy_type == 3:
-            self.spawning_tanks.add(StrongTank(*coords, self))
+            self.spawning_tanks.add(StrongTank(*coords, self, bonus))
 
     def render(self):
-        """
-        Отрисовываем все элементы на отдельной поверхности, чтобы можно было разместить игровое поле в середние окна.
-        """
         canvas = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
         canvas.fill((0, 0, 0))
         self.blocks.draw(canvas)
@@ -142,10 +186,16 @@ class Game:
         self.enemies.draw(canvas)
         self.bullets.draw(canvas)
         self.grass_blocks.draw(canvas)
+        self.flag_group.draw(canvas)
         self.shields.draw(canvas)
         self.spawning_tanks.draw(canvas)
         self.bonuses.draw(canvas)
+        self.explosions.draw(canvas)
+        if self.pause:
+            self.pause_group.draw(canvas)
         if self.game_over:
+            self.flag_group.empty()
+            self.flag_broken_group.draw(canvas)
             self.game_over_group.draw(canvas)
             self.game_over_sprite.rect.y -= 5
         self.screen.fill((192, 192, 192))
@@ -222,7 +272,6 @@ class Game:
         Пробегаемся по массиву, полученному из файла с картой
         инициализируем и добавляем в список стены
         """
-
         _map, self.enemies_amount = read_map(filename)
         self.ice_blocks.empty()
         self.blocks.empty()
@@ -233,6 +282,7 @@ class Game:
         self.spawning_tanks.empty()
         self.bonuses.empty()
         self.shields.empty()
+        self.explosions.empty()
         self.blocks_around_base = list()
         self.base_protected = False
 
@@ -262,38 +312,33 @@ class Game:
         del self.enemy_list[20:]
 
     def create_bonus(self):
-        """TODO: Создавать бонусы при уничтожении бонусного танка, а не по времени"""
-        if (time.time() - self.bonus_time) >= 1:
-            self.bonus_time = time.time()
-            if randint(0, 1) == 0:
-                num = randint(0, 5)
-                x, y = randint(0, PLAYGROUND_WIDTH - CELL_SIZE * 2),\
-                    randint(0, PLAYGROUND_WIDTH - CELL_SIZE * 2)
-                if not num:
-                    self.bonuses.add(BonusStar(x, y))
-                elif num == 1:
-                    self.bonuses.add(BonusClock(x, y))
-                elif num == 2:
-                    self.bonuses.add(BonusGrenade(x, y))
-                elif num == 3:
-                    self.bonuses.add(BonusHelmet(x, y))
-                elif num == 4:
-                    self.bonuses.add(BonusShovel(x, y))
-                elif num == 5:
-                    self.bonuses.add(BonusTank(x, y))
+        num = randint(0, 5)
+        x, y = randint(0, PLAYGROUND_WIDTH - CELL_SIZE * 2),\
+            randint(0, PLAYGROUND_WIDTH - CELL_SIZE * 2)
+        if not num:
+            self.bonuses.add(BonusStar(x, y))
+        elif num == 1:
+            self.bonuses.add(BonusClock(x, y))
+        elif num == 2:
+            self.bonuses.add(BonusGrenade(x, y))
+        elif num == 3:
+            self.bonuses.add(BonusHelmet(x, y))
+        elif num == 4:
+            self.bonuses.add(BonusShovel(x, y))
+        elif num == 5:
+            self.bonuses.add(BonusTank(x, y))
 
     def make_base_protected(self):
         new_blocks = list()
         for block in self.blocks_around_base:
-            if block in self.blocks.sprites():
-                strong_block = StrongBrickWall(block.rect.x, block.rect.y)
-                self.blocks.remove(block)
-                self.blocks.add(strong_block)
-                new_blocks.append(strong_block)
+            strong_block = StrongBrickWall(block.rect.x, block.rect.y)
+            self.blocks.remove(block)
+            self.blocks.add(strong_block)
+            new_blocks.append(strong_block)
         self.blocks_around_base = new_blocks.copy()
         self.base_protected = True
-        self.base_protection_duration = 10
-        self.base_protection_start_time = time.time()
+        self.base_protection_duration = FPS * 20
+        self.base_protection_count = 0
 
     def make_base_unprotected(self):
         new_blocks = list()
@@ -303,6 +348,8 @@ class Game:
                 self.blocks.remove(block)
                 self.blocks.add(_block)
                 new_blocks.append(_block)
+            else:
+                new_blocks.append(BrickWall(block.rect.x, block.rect.y))
         self.blocks_around_base = new_blocks.copy()
         self.base_protected = False
 
@@ -313,18 +360,7 @@ class Game:
 class Tank(pygame.sprite.Sprite):
     def __init__(self, x, y, velocity, game, *groups):
         super().__init__(*groups)
-
-        self.explosion_animation_tank = iter([
-                load_image('tank_explosion_0', (90, 90), -1),
-                load_image('tank_explosion_0', (90, 90), -1),
-                load_image('tank_explosion_0', (90, 90), -1),
-                load_image('tank_explosion_0', (90, 90), -1),
-                load_image('tank_explosion_1', (90, 90), -1),
-                load_image('tank_explosion_1', (90, 90), -1),
-                load_image('tank_explosion_1', (90, 90), -1),
-                load_image('tank_explosion_1', (90, 90), -1)])
         self.start_tank_terminate = False
-
         self.game = game
         self.cell_size = CELL_SIZE * 2 - 10
         self.rect = pygame.Rect(x, y, self.cell_size, self.cell_size)
@@ -341,39 +377,35 @@ class Tank(pygame.sprite.Sprite):
         self.bullet_limit = 1
         self.bullet_speed = 240
         self.tier = 1
-        self._alive = True
         self.immortal = True
-        self.immortal_start_time = time.time()
-        self.immortal_duration = 3
+        self.immortal_count = 0
+        self.immortal_duration = FPS * 3
         self.spawn_animation = cycle(load_image(f'spawn_animation_{i}', (self.cell_size, self.cell_size), -1)
                                      for i in range(8))
         self.spawn_duration = FPS
         self.spawn_count = 0
         self.frozen = False
-        self.freeze_duration = 10
-        self.freeze_start_time = time.time()
+        self.freeze_duration = FPS * 10
+        self.freeze_count = 0
         self.image = next(self.spawn_animation)
 
     def update(self, *args):
         if self.start_tank_terminate:
-            self.rect.centerx -= 20
-            self.rect.centery -= 20
-
-            next_image = next(self.explosion_animation_tank, None)
-            if next_image is not None:
-                self.image = next_image
-                return
-            else:
-                if isinstance(self, Player):
-                    if self.lives >= 2:
-                        self.lives -= 1
-                        self.respawn()
-                    else:
-                        self._alive = False
+            self.game.explosions.add(TankExplosion(self))
+            if isinstance(self, Player):
+                lives = self.lives - 1
+                self.terminate()
+                if lives > 0:
+                    self.respawn()
+                    self.lives = lives
                 else:
                     self.remove(*self.groups())
                     del self
                     return
+            else:
+                self.remove(*self.groups())
+                del self
+                return
         if self.spawn_animation is not None:
             if self.spawn_count >= self.spawn_duration:
                 self.image = next(self.animation)
@@ -418,18 +450,21 @@ class Tank(pygame.sprite.Sprite):
         if self.immortal:
             if self not in [shield.tank for shield in self.game.shields.sprites()]:
                 self.game.shields.add(Shield(self))
+                self.immortal_count += 1
             else:
-                if time.time() - self.immortal_start_time > self.immortal_duration:
+                if self.immortal_count >= self.immortal_duration:
                     self.immortal = False
                     for shield in self.game.shields.sprites():
                         if shield.tank == self:
                             self.game.shields.remove(shield)
                             break
+                else:
+                    self.immortal_count += 1
 
     def bonus_handler(self):
         for bonus in pygame.sprite.spritecollide(self, pygame.sprite.Group(game.bonuses), 0):
             if isinstance(bonus, BonusHelmet):
-                self.make_immortal(10)
+                self.make_immortal(FPS * 10)
             elif isinstance(bonus, BonusTank):
                 self.lives += 1
             elif isinstance(bonus, BonusGrenade):
@@ -437,7 +472,7 @@ class Tank(pygame.sprite.Sprite):
                     enemy.terminate()
             elif isinstance(bonus, BonusClock):
                 for enemy in self.game.enemies.sprites():
-                    enemy.make_frozen(10)
+                    enemy.make_frozen(FPS * 10)
             elif isinstance(bonus, BonusShovel):
                 self.game.make_base_protected()
             elif isinstance(bonus, BonusStar):
@@ -448,10 +483,12 @@ class Tank(pygame.sprite.Sprite):
                         self.animation = cycle((load_image('tier2_tank', (self.cell_size, self.cell_size), -1),
                                                 load_image('tier2_tank_2', (self.cell_size, self.cell_size), -1)))
                     elif self.tier == 3:
+                        self.bullet_speed /= 2
                         self.bullet_limit = 2
                         self.animation = cycle((load_image('tier3_tank', (self.cell_size, self.cell_size), -1),
                                                 load_image('tier3_tank_2', (self.cell_size, self.cell_size), -1)))
                     elif self.tier == 4:
+                        self.bullet_limit = 1
                         self.durability = 2
                         self.animation = cycle((load_image('tier4_tank', (self.cell_size, self.cell_size), -1),
                                                 load_image('tier4_tank_2', (self.cell_size, self.cell_size), -1)))
@@ -461,15 +498,13 @@ class Tank(pygame.sprite.Sprite):
     def make_immortal(self, duration):
         self.immortal = True
         self.immortal_duration = duration
-        self.immortal_start_time = time.time()
 
     def make_frozen(self, duration):
         self.frozen = True
         self.freeze_duration = duration
-        self.freeze_start_time = time.time()
 
     def shoot(self):
-        if not self.frozen:
+        if not self.frozen and self.spawn_animation is None:
             bullets_count = 0
             for bullet in game.bullets.sprites():
                 if bullet.owner is self:
@@ -482,6 +517,10 @@ class Tank(pygame.sprite.Sprite):
     def is_under_fire(self):
         if not self.immortal:
             self.durability -= 1
+            if isinstance(self, Enemy) and self.bonus:
+                self.game.bonuses.empty()
+                self.game.create_bonus()
+                self.bonus = False
 
     def change_angle(self):
         if self.vel_y == -self.velocity:
@@ -502,11 +541,13 @@ class Tank(pygame.sprite.Sprite):
 
 
 class Enemy(Tank):
-    def __init__(self, x, y, velocity, game, *groups):
+    def __init__(self, x, y, velocity, game, bonus: bool, *groups):
         super().__init__(x, y, velocity, game, *groups)
         self.animation = cycle((load_image('enemy_tier1_tank', (self.cell_size, self.cell_size), -1),
                                 load_image('enemy_tier1_tank_2', (self.cell_size, self.cell_size), -1)))
+        self.image = next(self.animation)
         self.mask = pygame.mask.from_surface(self.image)
+        self.bonus = bonus
         self.reward = 0
         self.stay = False
         self.facing = DOWN
@@ -514,16 +555,10 @@ class Enemy(Tank):
 
     def update(self, *args):
         if self.start_tank_terminate:
-            self.rect.centerx -= 6
-            self.rect.centery -= 6
-            next_image = next(self.explosion_animation_tank, None)
-            if next_image is not None:
-                self.image = next_image
-                return
-            else:
-                self.remove(*self.groups())
-                del self
-                return
+            self.game.explosions.add(TankExplosion(self))
+            self.remove(*self.groups())
+            del self
+            return
         if self.spawn_animation is not None:
             if self.spawn_count >= self.spawn_duration:
                 self.image = next(self.animation)
@@ -550,8 +585,10 @@ class Enemy(Tank):
                 self.choose_new_direction()
         else:
             self.stay = True
-            if time.time() - self.freeze_start_time > self.freeze_duration:
+            if self.freeze_count >= self.freeze_duration:
                 self.frozen = False
+            else:
+                self.freeze_count += 1
         if randint(0, 7) == 0:
             self.shoot()
         self.change_angle()
@@ -624,40 +661,57 @@ class Enemy(Tank):
             self.stay = True
         self.facing = new_direction
 
+    def make_bonus(self, tier: int):
+        first, second = next(self.animation), next(self.animation)
+        self.animation = cycle((first, load_image(f'tier{tier}_tank_bonus_2', (self.cell_size, self.cell_size), -1),
+                                second, load_image(f'tier{tier}_tank_bonus', (self.cell_size, self.cell_size), -1)))
+
 
 class SimpleEnemy(Enemy):
-    def __init__(self, x, y, game, *groups):
-        super().__init__(x, y, 60, game, *groups)
+    def __init__(self, x, y, game, bonus: bool, *groups):
+        super().__init__(x, y, 60, game, bonus, *groups)
+        self.bonus = bonus
+        if self.bonus:
+            self.make_bonus(1)
 
 
 class QuickTank(Enemy):
-    def __init__(self, x, y, game, *groups):
-        super().__init__(x, y, 90, game, *groups)
+    def __init__(self, x, y, game, bonus: bool, *groups):
+        super().__init__(x, y, 90, game, bonus, *groups)
+        self.bonus = bonus
         self.reward = 200
         self.animation = cycle((load_image('enemy_tier2_tank', (self.cell_size, self.cell_size), -1),
                                 load_image('enemy_tier2_tank_2', (self.cell_size, self.cell_size), -1)))
+        if self.bonus:
+            self.make_bonus(2)
         self.image = next(self.animation)
         self.mask = pygame.mask.from_surface(self.image)
 
 
 class QuickFireTank(Enemy):
-    def __init__(self, x, y, game, *groups):
-        super().__init__(x, y, 60, game, *groups)
+    def __init__(self, x, y, game, bonus: bool, *groups):
+        super().__init__(x, y, 60, game, bonus, *groups)
+        self.bonus = bonus
         self.bullet_speed *= 2
         self.reward = 300
         self.animation = cycle((load_image('enemy_tier3_tank', (self.cell_size, self.cell_size), -1),
                                 load_image('enemy_tier3_tank_2', (self.cell_size, self.cell_size), -1)))
+        if self.bonus:
+            self.make_bonus(3)
         self.image = next(self.animation)
         self.mask = pygame.mask.from_surface(self.image)
 
 
 class StrongTank(Enemy):
-    def __init__(self, x, y, game, *groups):
-        super().__init__(x, y, 60, game, *groups)
+    def __init__(self, x, y, game, bonus: bool, *groups):
+        super().__init__(x, y, 60, game, bonus, *groups)
+        self.bonus = bonus
         self.reward = 400
         self.durability = 4
         self.animation = cycle((load_image('enemy_tier4_tank', (self.cell_size, self.cell_size), -1),
                                 load_image('enemy_tier4_tank_2', (self.cell_size, self.cell_size), -1)))
+        if self.bonus:
+            self.make_bonus(4)
         self.image = next(self.animation)
         self.mask = pygame.mask.from_surface(self.image)
 
@@ -691,36 +745,8 @@ class Player(Tank):
         if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
             self.shoot()
 
-    def terminate(self):
+    def respawn(self):
         self.__init__(CELL_SIZE * 8, CELL_SIZE * 24, game, game.players)
-        self.lives -= 1
-        if self.lives <= -1:
-            super().terminate()
-
-    #def respawn(self):
-    #    self.cell_size = CELL_SIZE * 2 - 10
-    #    self.rect = pygame.Rect(CELL_SIZE * 8, CELL_SIZE * 24, self.cell_size, self.cell_size)
-    #    self.game.spawning_tanks.add(self)
-    #    self.velocity = self.velocity_backup
-    #    self.vel_x, self.vel_y = 0, 0
-    #    self.facing = UP
-    #    self.durability = 1
-    #    self.angle = 0
-    #    self.stay = True
-    #    self.bullet_limit = 1
-    #    self.bullet_speed = 240
-    #    self.tier = 1
-    #    self.immortal = True
-    #    self.immortal_start_time = time.time()
-    #    self.immortal_duration = 3
-    #    self.animation = cycle((load_image('tier1_tank', (self.cell_size, self.cell_size), -1),
-    #                           load_image('tier1_tank_2', (self.cell_size, self.cell_size), -1)))
-    #    self.spawn_animation = cycle(load_image(f'spawn_animation_{i}', (self.cell_size, self.cell_size), -1)
-    #                                 for i in range(8))
-    #    self.spawn_duration = FPS
-    #    self.spawn_count = 0
-    #    self.image = next(self.spawn_animation)
-    #    self.start_tank_terminate = False
 
 
 class Block(pygame.sprite.Sprite):
@@ -859,7 +885,8 @@ class Bullet(pygame.sprite.Sprite):
             if collided:
                 for sprite in collided:
                     sprite.is_under_fire(self)
-
+            if get_collided_by_mask(self, game.flag_group):
+                game.game_over = True
         collided = get_collided_by_mask(self, game.bullets)
         if collided:
             for sprite in collided:
@@ -873,6 +900,24 @@ class Bullet(pygame.sprite.Sprite):
 
     def terminate(self):
         self.start_terminate = True
+
+
+class TankExplosion(pygame.sprite.Sprite):
+    def __init__(self, tank):
+        super().__init__()
+        self.animation = iter(
+                [load_image('tank_explosion_0', (CELL_SIZE * 3, CELL_SIZE * 3), -1) for _ in range(4)] +
+                [load_image('tank_explosion_1', (CELL_SIZE * 3, CELL_SIZE * 3), (0, 10)) for _ in range(4)])
+        self.image = next(self.animation)
+        self.rect = self.image.get_rect()
+        self.rect.x = tank.rect.x - CELL_SIZE // 2
+        self.rect.y = tank.rect.y - CELL_SIZE // 2
+
+    def update(self, *args):
+        self.image = next(self.animation, None)
+        if not self.image:
+            game.explosions.remove(self)
+            del self
 
 
 class Shield(pygame.sprite.Sprite):
@@ -1011,9 +1056,11 @@ class Menu:
                     if v['selected']:
                         if k == 'Новая игра':
                             self.running = False
+                            self.parent.save_config()
                             break
                         elif k == 'Продолжить':
                             self.running = False
+                            self.parent.load_config()
                             break
                         elif k == 'Выход':
                             self.running = False
@@ -1023,7 +1070,6 @@ class Menu:
     def get_size(self):
         return self.width, self.height
 
-    # Разрешение экрана
     def get_resolution(self):
         return ctypes.windll.user32.GetSystemMetrics(0), ctypes.windll.user32.GetSystemMetrics(1)
 
