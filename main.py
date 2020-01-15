@@ -11,6 +11,7 @@ CELL_SIZE = PLAYGROUND_WIDTH // 26
 UP, DOWN, LEFT, RIGHT, SHOOT = pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT, pygame.K_SPACE
 BUTTONS = {UP, DOWN, LEFT, RIGHT, SHOOT}
 EXIT_TO_MENU = True
+SOUND_ON = False
 FPS = 30
 
 
@@ -300,8 +301,9 @@ class Game:
         Пробегаемся по массиву, полученному из файла с картой
         инициализируем и добавляем в список стены
         """
-        pygame.mixer.music.load('data/music/intro.mp3')
-        pygame.mixer.music.play()
+        if SOUND_ON:
+            pygame.mixer.music.load('data/music/intro.mp3')
+            pygame.mixer.music.play()
         self.loading_screen_1_pos = [0, -PLAYGROUND_WIDTH]
         self.loading_screen_2_pos = [0, PLAYGROUND_WIDTH]
         self.starting_level = True
@@ -454,13 +456,12 @@ class Tank(pygame.sprite.Sprite):
             return
 
         self.rect.y += self.vel_y
-        collides = pygame.sprite.spritecollide(self, pygame.sprite.Group(game.players, game.blocks, game.enemies), 0)
+        collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
         if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
             self.rect.y -= self.vel_y
         self.rect.x += self.vel_x
         self.stay = False
-        collides = pygame.sprite.spritecollide(self,
-                                               pygame.sprite.Group(game.players, game.blocks, game.enemies), 0)
+        collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
         if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
             self.rect.x -= self.vel_x
         if self.vel_x > 0:
@@ -497,8 +498,9 @@ class Tank(pygame.sprite.Sprite):
                     self.immortal_count += 1
 
     def bonus_handler(self):
-        for bonus in pygame.sprite.spritecollide(self, pygame.sprite.Group(game.bonuses), 0):
-            pygame.mixer.Sound('data/music/bonus_taken.wav').play()
+        for bonus in get_collided_by_rect(self, game.bonuses):
+            if SOUND_ON:
+                pygame.mixer.Sound('data/music/bonus_taken.wav').play()
             if isinstance(bonus, BonusHelmet):
                 self.make_immortal(FPS * 10)
             elif isinstance(bonus, BonusTank):
@@ -605,14 +607,12 @@ class Enemy(Tank):
             return
         if not self.frozen:
             self.rect.y += self.vel_y
-            collides = pygame.sprite.spritecollide(self,
-                                                   pygame.sprite.Group(game.players, game.blocks, game.enemies), False)
+            collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
             if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
                 self.rect.y -= self.vel_y
                 self.choose_new_direction()
             self.rect.x += self.vel_x
-            collides = pygame.sprite.spritecollide(self,
-                                                   pygame.sprite.Group(game.players, game.blocks, game.enemies), False)
+            collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
             if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
                 self.rect.x -= self.vel_x
                 self.choose_new_direction()
@@ -644,8 +644,7 @@ class Enemy(Tank):
             if direction == UP:
                 new_sprite = pygame.sprite.Sprite()
                 new_sprite.rect = self.rect.move(0, -self.cell_size)
-                collides = pygame.sprite.spritecollide(new_sprite,
-                                                       pygame.sprite.Group(game.players, game.blocks), False)
+                collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
                 if len(collides) == 0 and 0 <= new_sprite.rect.top:
                     new_direction = direction
                     del new_sprite
@@ -653,8 +652,7 @@ class Enemy(Tank):
             elif direction == RIGHT:
                 new_sprite = pygame.sprite.Sprite()
                 new_sprite.rect = self.rect.move(self.cell_size, 0)
-                collides = pygame.sprite.spritecollide(new_sprite,
-                                                       pygame.sprite.Group(game.players, game.blocks), False)
+                collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
                 if len(collides) == 0 and PLAYGROUND_WIDTH >= new_sprite.rect.right:
                     new_direction = direction
                     del new_sprite
@@ -662,8 +660,7 @@ class Enemy(Tank):
             elif direction == DOWN:
                 new_sprite = pygame.sprite.Sprite()
                 new_sprite.rect = self.rect.move(0, self.cell_size)
-                collides = pygame.sprite.spritecollide(new_sprite,
-                                                       pygame.sprite.Group(game.players, game.blocks), False)
+                collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
                 if len(collides) == 0 and PLAYGROUND_WIDTH >= new_sprite.rect.bottom:
                     new_direction = direction
                     del new_sprite
@@ -671,8 +668,7 @@ class Enemy(Tank):
             elif direction == LEFT:
                 new_sprite = pygame.sprite.Sprite()
                 new_sprite.rect = self.rect.move(-self.cell_size, 0)
-                collides = pygame.sprite.spritecollide(new_sprite,
-                                                       pygame.sprite.Group(game.players, game.blocks), False)
+                collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
                 if len(collides) == 0 and 0 <= new_sprite.rect.left:
                     new_direction = direction
                     del new_sprite
@@ -849,7 +845,7 @@ class GrassWall(Block):
 class Bullet(pygame.sprite.Sprite):
     def __init__(self, owner: Tank, *groups):
         super().__init__(*groups)
-        if isinstance(owner, Player):
+        if isinstance(owner, Player) and SOUND_ON:
             self.ex_sound = pygame.mixer.Sound('data/music/bullet_explosion.ogg')
             self.beyond_sound = pygame.mixer.Sound('data/music/bullet_beyond_field.ogg')
             pygame.mixer.Sound('data/music/shoot.ogg').play()
@@ -922,7 +918,8 @@ class Bullet(pygame.sprite.Sprite):
                     sprite.is_under_fire(self)
                 self.terminate()
         if get_collided_by_mask(self, game.flag_group):
-            pygame.mixer.Sound('data/music/base_explosion.ogg').play()
+            if SOUND_ON:
+                pygame.mixer.Sound('data/music/base_explosion.ogg').play()
             self.terminate()
             game.game_over = True
             game.save_config()
@@ -933,16 +930,16 @@ class Bullet(pygame.sprite.Sprite):
             self.terminate()
 
         if self.rect.bottom < 0 or self.rect.top > PLAYGROUND_WIDTH:
-            if isinstance(self.owner, Player):
+            if isinstance(self.owner, Player) and SOUND_ON:
                 self.beyond_sound.play()
             self.terminate()
         elif self.rect.right < 0 or self.rect.left > PLAYGROUND_WIDTH:
-            if isinstance(self.owner, Player):
+            if isinstance(self.owner, Player) and SOUND_ON:
                 self.beyond_sound.play()
             self.terminate()
 
     def terminate(self):
-        if isinstance(self.owner, Player):
+        if isinstance(self.owner, Player) and SOUND_ON:
             self.ex_sound.play()
         self.start_terminate = True
 
@@ -950,7 +947,8 @@ class Bullet(pygame.sprite.Sprite):
 class TankExplosion(pygame.sprite.Sprite):
     def __init__(self, tank):
         super().__init__()
-        pygame.mixer.Sound('data/music/tank_explosion.ogg').play()
+        if SOUND_ON:
+            pygame.mixer.Sound('data/music/tank_explosion.ogg').play()
         self.animation = iter(
                 [load_image('tank_explosion_0', (CELL_SIZE * 3, CELL_SIZE * 3), -1) for _ in range(4)] +
                 [load_image('tank_explosion_1', (CELL_SIZE * 3, CELL_SIZE * 3), (0, 10)) for _ in range(4)])
@@ -994,7 +992,8 @@ class Bonus(pygame.sprite.Sprite):
         self.rect.x = x
         self.rect.y = y
         self.mask = pygame.mask.from_surface(self.image)
-        pygame.mixer.Sound('data/music/bonus_appears.wav').play()
+        if SOUND_ON:
+            pygame.mixer.Sound('data/music/bonus_appears.wav').play()
 
     def terminate(self):
         del self
@@ -1125,11 +1124,19 @@ class Menu:
         return ctypes.windll.user32.GetSystemMetrics(0), ctypes.windll.user32.GetSystemMetrics(1)
 
 
-def get_collided_by_mask(sprite_1: pygame.sprite.Sprite, group: pygame.sprite.Group):
+def get_collided_by_mask(sprite_1: pygame.sprite.Sprite, *groups):
     collided = []
-    for sprite_2 in group.sprites():
-        if pygame.sprite.collide_mask(sprite_1, sprite_2) and sprite_1 is not sprite_2:
-            collided.append(sprite_2)
+    for group in groups:
+        for sprite_2 in group.sprites():
+            if pygame.sprite.collide_mask(sprite_1, sprite_2) and sprite_1 is not sprite_2:
+                collided.append(sprite_2)
+    return collided
+
+
+def get_collided_by_rect(sprite, *groups: pygame.sprite.Group):
+    collided = []
+    for group in groups:
+        collided.extend(pygame.sprite.spritecollide(sprite, group, False))
     return collided
 
 
