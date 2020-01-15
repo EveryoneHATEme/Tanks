@@ -10,6 +10,7 @@ PLAYGROUND_WIDTH = 650
 CELL_SIZE = PLAYGROUND_WIDTH // 26
 UP, DOWN, LEFT, RIGHT, SHOOT = pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT, pygame.K_SPACE
 BUTTONS = {UP, DOWN, LEFT, RIGHT, SHOOT}
+EXIT_TO_MENU = True
 FPS = 30
 
 
@@ -33,7 +34,6 @@ def load_image(name, size=None, color_key=None):
 class Game:
     def __init__(self):
         self.run = True
-        self.game_over = False
         self.fullscreen_mode = False
         self.simple_enemy_texture = load_image('enemy_tier1_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.quick_enemy_texture = load_image('enemy_tier2_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
@@ -42,6 +42,7 @@ class Game:
         self.level = 1
         Menu(self)
         if self.run:
+            self.game_over = False
             self.enemy_list = []
             self.enemies_amount = tuple()
             self.enemy_positions = cycle([(CELL_SIZE * 12, 0), (CELL_SIZE * 24, 0), (0, 0)])
@@ -63,6 +64,14 @@ class Game:
             self.game_over_sprite = pygame.sprite.Sprite(self.game_over_group)
             self.game_over_sprite.image = load_image('game_over', (31, 15), -1)
             self.game_over_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - 15, PLAYGROUND_WIDTH, 31, 15)
+            self.loading_screen_1 = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
+            self.loading_screen_1.fill((192, 192, 192))
+            self.loading_screen_1_pos = [0, -PLAYGROUND_WIDTH]
+            self.loading_screen_2 = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
+            self.loading_screen_2.fill((192, 192, 192))
+            self.loading_screen_2_pos = [0, PLAYGROUND_WIDTH]
+            self.starting_level = True
+            self.starting_level_2 = False
             self.pause = False
             self.pause_group = pygame.sprite.Group()
             self.pause_sprite = pygame.sprite.Sprite(self.pause_group)
@@ -88,10 +97,12 @@ class Game:
             self.bonus_time = time.time()
 
     def main_loop(self):
+        global EXIT_TO_MENU
         while self.run:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.run = False
+                    EXIT_TO_MENU = False
                 elif event.type == pygame.KEYUP and event.key == pygame.K_F11:
                     if self.fullscreen_mode:
                         pygame.display.set_mode(WINDOW_SIZE)
@@ -103,7 +114,7 @@ class Game:
                 if not self.pause:
                     for player in self.players.sprites():
                         player.check_controls(event)
-            if not self.pause:
+            if not any([self.pause, self.starting_level, self.starting_level_2]):
                 self.enemies.update()
                 self.bullets.update()
                 if self.base_protected:
@@ -132,6 +143,7 @@ class Game:
                     self.time = time.time()
                 if len(self.players.sprites()) == 0:
                     self.game_over = True
+                    self.save_config()
                 if len(self.enemy_list) == 0 and len(self.enemies.sprites()) == 0:
                     self.level += 1
                     self.save_config()
@@ -198,7 +210,24 @@ class Game:
             self.flag_broken_group.draw(canvas)
             self.game_over_group.draw(canvas)
             self.game_over_sprite.rect.y -= 5
+            if self.game_over_sprite.rect.y <= -30:
+                self.run = False
         self.screen.fill((192, 192, 192))
+        if self.starting_level:
+            canvas.blit(self.loading_screen_1, self.loading_screen_1_pos)
+            canvas.blit(self.loading_screen_2, self.loading_screen_2_pos)
+            self.loading_screen_1_pos[1] += 19
+            self.loading_screen_2_pos[1] -= 19
+            if self.loading_screen_1_pos[1] > self.loading_screen_2_pos[1]:
+                self.starting_level = False
+                self.starting_level_2 = True
+        if self.starting_level_2:
+            canvas.blit(self.loading_screen_1, self.loading_screen_1_pos)
+            canvas.blit(self.loading_screen_2, self.loading_screen_2_pos)
+            self.loading_screen_1_pos[1] -= 19
+            self.loading_screen_2_pos[1] += 19
+            if self.loading_screen_2_pos[1] >= PLAYGROUND_WIDTH:
+                self.starting_level_2 = False
         sc_width, sc_height = self.screen.get_size()
         self.screen.blit(canvas, (sc_width // 32,
                                   sc_height // 2 - canvas.get_height() // 2))
@@ -264,7 +293,6 @@ class Game:
         self.screen.blit(label, (rect.left + CELL_SIZE * 7 - label.get_width() // 2,
                                  rect.top + CELL_SIZE * 7 - label.get_height() // 2))
         pygame.draw.rect(self.screen, (0, 0, 0), rect, 2)
-
         pygame.display.flip()
 
     def init_level(self, filename):
@@ -272,6 +300,12 @@ class Game:
         Пробегаемся по массиву, полученному из файла с картой
         инициализируем и добавляем в список стены
         """
+        pygame.mixer.music.load('data/music/intro.mp3')
+        pygame.mixer.music.play()
+        self.loading_screen_1_pos = [0, -PLAYGROUND_WIDTH]
+        self.loading_screen_2_pos = [0, PLAYGROUND_WIDTH]
+        self.starting_level = True
+        self.starting_level_2 = False
         _map, self.enemies_amount = read_map(filename)
         self.ice_blocks.empty()
         self.blocks.empty()
@@ -359,10 +393,6 @@ class Game:
 
 class Tank(pygame.sprite.Sprite):
     def __init__(self, x, y, velocity, game, *groups):
-        # self.move_sound = pygame.mixer.Sound('data/music/move.ogg')
-        # self.stop_sound = pygame.mixer.Sound('data/music/stop.ogg')
-        # self.stop_sound.play()
-        # self.stop_sound.set_volume(0.5)
         super().__init__(*groups)
         self.start_tank_terminate = False
         self.game = game
@@ -381,6 +411,7 @@ class Tank(pygame.sprite.Sprite):
         self.bullet_limit = 1
         self.bullet_speed = 240
         self.tier = 1
+        self.bonus = False
         self.immortal = True
         self.immortal_count = 0
         self.immortal_duration = FPS * 3
@@ -432,34 +463,19 @@ class Tank(pygame.sprite.Sprite):
                                                pygame.sprite.Group(game.players, game.blocks, game.enemies), 0)
         if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
             self.rect.x -= self.vel_x
-        # if self.stay:
-        #     self.move_sound.stop()
-        #     self.stop_sound.play()
-        # else:
-        #     self.stop_sound.stop()
-        #     self.move_sound.play()
         if self.vel_x > 0:
-            # self.move_sound.stop()
-            # self.move_sound.play()
             self.facing = RIGHT
             self.angle = 270
         elif self.vel_x < 0:
-            # self.move_sound.stop()
-            # self.move_sound.play()
             self.facing = LEFT
             self.angle = 90
         elif self.vel_y > 0:
-            # self.move_sound.stop()
-            # self.move_sound.play()
             self.facing = DOWN
             self.angle = 180
         elif self.vel_y < 0:
-            # self.move_sound.stop()
-            # self.move_sound.play()
             self.facing = UP
             self.angle = 0
         else:
-            # self.move_sound.stop()
             self.stay = True
         self.bonus_handler()
         self.change_angle()
@@ -482,6 +498,7 @@ class Tank(pygame.sprite.Sprite):
 
     def bonus_handler(self):
         for bonus in pygame.sprite.spritecollide(self, pygame.sprite.Group(game.bonuses), 0):
+            pygame.mixer.Sound('data/music/bonus_taken.wav').play()
             if isinstance(bonus, BonusHelmet):
                 self.make_immortal(FPS * 10)
             elif isinstance(bonus, BonusTank):
@@ -502,12 +519,10 @@ class Tank(pygame.sprite.Sprite):
                         self.animation = cycle((load_image('tier2_tank', (self.cell_size, self.cell_size), -1),
                                                 load_image('tier2_tank_2', (self.cell_size, self.cell_size), -1)))
                     elif self.tier == 3:
-                        self.bullet_speed /= 2
                         self.bullet_limit = 2
                         self.animation = cycle((load_image('tier3_tank', (self.cell_size, self.cell_size), -1),
                                                 load_image('tier3_tank_2', (self.cell_size, self.cell_size), -1)))
                     elif self.tier == 4:
-                        self.bullet_limit = 1
                         self.durability = 2
                         self.animation = cycle((load_image('tier4_tank', (self.cell_size, self.cell_size), -1),
                                                 load_image('tier4_tank_2', (self.cell_size, self.cell_size), -1)))
@@ -530,7 +545,6 @@ class Tank(pygame.sprite.Sprite):
                     bullets_count += 1
                 if bullets_count >= self.bullet_limit:
                     return
-
             game.bullets.add(Bullet(self))
 
     def is_under_fire(self):
@@ -737,15 +751,12 @@ class StrongTank(Enemy):
 
 class Player(Tank):
     def __init__(self, x, y, game, *groups):
-        pygame.mixer.music.load('data/music/stop.mp3')
-        pygame.mixer.music.play()
         super().__init__(x, y, 90, game, *groups)
         self.animation = cycle((load_image('tier1_tank', (self.cell_size, self.cell_size), -1),
                                load_image('tier1_tank_2', (self.cell_size, self.cell_size), -1)))
         self.image = next(self.animation)
         self.score = 0
-        if not hasattr(self, 'lives'):
-            self.lives = 2
+        self.lives = 3
 
     def check_controls(self, event: pygame.event.EventType):
         if pygame.key.get_pressed()[pygame.K_LEFT]:
@@ -791,7 +802,6 @@ class BrickWall(Block):
         self.start_exp_flag = False
 
     def is_under_fire(self, bullet):
-        bullet.terminate()
         self.terminate()
 
 
@@ -804,7 +814,6 @@ class StrongBrickWall(Block):
     def is_under_fire(self, bullet):
         if isinstance(bullet.owner, Player) and bullet.owner.tier == 4:
             self.terminate()
-        bullet.terminate()
 
 
 class WaterWall(Block):
@@ -839,8 +848,11 @@ class GrassWall(Block):
 
 class Bullet(pygame.sprite.Sprite):
     def __init__(self, owner: Tank, *groups):
-        self.ex_sound = pygame.mixer.Sound('data/music/explosion.ogg')
         super().__init__(*groups)
+        if isinstance(owner, Player):
+            self.ex_sound = pygame.mixer.Sound('data/music/bullet_explosion.ogg')
+            self.beyond_sound = pygame.mixer.Sound('data/music/bullet_beyond_field.ogg')
+            pygame.mixer.Sound('data/music/shoot.ogg').play()
         self.flag_move = 0
         self.explosion_animation = iter([load_image('bullet_explosion_%d' % i, (50, 50), -1) for i in range(3)])
         self.start_terminate = False
@@ -873,8 +885,6 @@ class Bullet(pygame.sprite.Sprite):
             self.rect.centerx += self.velocity_x
             self.rect.centery += self.velocity_y
         else:
-            # pygame.mixer.music.load('data/music/explosion.mp3')
-            # pygame.mixer.music.play()
             if self.flag_move == 0:
                 self.rect.centerx -= 15
                 self.rect.centery -= 15
@@ -899,6 +909,7 @@ class Bullet(pygame.sprite.Sprite):
             if collided:
                 for sprite in collided:
                     sprite.is_under_fire(self)
+                self.terminate()
         elif isinstance(self.owner, Enemy):
             collided = get_collided_by_mask(self, game.players)
             if collided:
@@ -909,8 +920,12 @@ class Bullet(pygame.sprite.Sprite):
             if collided:
                 for sprite in collided:
                     sprite.is_under_fire(self)
-            if get_collided_by_mask(self, game.flag_group):
-                game.game_over = True
+                self.terminate()
+        if get_collided_by_mask(self, game.flag_group):
+            pygame.mixer.Sound('data/music/base_explosion.ogg').play()
+            self.terminate()
+            game.game_over = True
+            game.save_config()
         collided = get_collided_by_mask(self, game.bullets)
         if collided:
             for sprite in collided:
@@ -918,21 +933,24 @@ class Bullet(pygame.sprite.Sprite):
             self.terminate()
 
         if self.rect.bottom < 0 or self.rect.top > PLAYGROUND_WIDTH:
+            if isinstance(self.owner, Player):
+                self.beyond_sound.play()
             self.terminate()
         elif self.rect.right < 0 or self.rect.left > PLAYGROUND_WIDTH:
+            if isinstance(self.owner, Player):
+                self.beyond_sound.play()
             self.terminate()
 
     def terminate(self):
         if isinstance(self.owner, Player):
             self.ex_sound.play()
-        # pygame.mixer.music.load('data/music/explosion.mp3')
-        # pygame.mixer.music.play()
         self.start_terminate = True
 
 
 class TankExplosion(pygame.sprite.Sprite):
     def __init__(self, tank):
         super().__init__()
+        pygame.mixer.Sound('data/music/tank_explosion.ogg').play()
         self.animation = iter(
                 [load_image('tank_explosion_0', (CELL_SIZE * 3, CELL_SIZE * 3), -1) for _ in range(4)] +
                 [load_image('tank_explosion_1', (CELL_SIZE * 3, CELL_SIZE * 3), (0, 10)) for _ in range(4)])
@@ -976,6 +994,7 @@ class Bonus(pygame.sprite.Sprite):
         self.rect.x = x
         self.rect.y = y
         self.mask = pygame.mask.from_surface(self.image)
+        pygame.mixer.Sound('data/music/bonus_appears.wav').play()
 
     def terminate(self):
         del self
@@ -1013,9 +1032,6 @@ class BonusTank(Bonus):
 
 class Menu:
     def __init__(self, parent):
-        pygame.mixer.music.load('data/music/intro.mp3')
-        pygame.mixer.music.play()
-
         self.parent = parent
         self.width, self.height = WINDOW_SIZE
         pygame.font.init()
@@ -1058,10 +1074,12 @@ class Menu:
         pygame.display.flip()
 
     def check_events(self):
+        global EXIT_TO_MENU
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
                 self.parent.run = False
+                EXIT_TO_MENU = False
             elif event.type == pygame.KEYUP:
                 # Переключение режимов экрана
                 if event.key == pygame.K_F11:
@@ -1087,10 +1105,12 @@ class Menu:
                     if v['selected']:
                         if k == 'Новая игра':
                             self.running = False
+                            self.parent.run = True
                             self.parent.save_config()
                             break
                         elif k == 'Продолжить':
                             self.running = False
+                            self.parent.run = True
                             self.parent.load_config()
                             break
                         elif k == 'Выход':
@@ -1128,6 +1148,7 @@ def read_map(filename: str):
 
 if __name__ == '__main__':
     pygame.init()
-    game = Game()
-    game.main_loop()
+    while EXIT_TO_MENU:
+        game = Game()
+        game.main_loop()
     pygame.quit()
