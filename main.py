@@ -11,7 +11,7 @@ CELL_SIZE = PLAYGROUND_WIDTH // 26
 UP, DOWN, LEFT, RIGHT, SHOOT = pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT, pygame.K_SPACE
 BUTTONS = {UP, DOWN, LEFT, RIGHT, SHOOT}
 EXIT_TO_MENU = True
-SOUND_ON = False
+SOUND_ON = True
 FPS = 30
 
 
@@ -40,7 +40,7 @@ class Game:
         self.quick_enemy_texture = load_image('enemy_tier2_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.quickfire_enemy_texture = load_image('enemy_tier3_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.strong_enemy_texture = load_image('enemy_tier4_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), (0, 0, 0))
-        self.level = 1
+        self.level = 4
         Menu(self)
         if self.run:
             self.game_over = False
@@ -92,7 +92,7 @@ class Game:
             self.screen = pygame.display.set_mode(WINDOW_SIZE)
             if self.fullscreen_mode:
                 pygame.display.set_mode(self.get_resolution(), pygame.FULLSCREEN)
-            self.init_level(f'map{self.level}.txt')
+            self.init_level(f'data/levels/level_{self.level}.txt')
             self.time = time.time()
             self.clock = pygame.time.Clock()
             self.bonus_time = time.time()
@@ -148,7 +148,7 @@ class Game:
                 if len(self.enemy_list) == 0 and len(self.enemies.sprites()) == 0:
                     self.level += 1
                     self.save_config()
-                    self.init_level(f'map{self.level}.txt')
+                    self.init_level(f'data/levels/level_{self.level}.txt')
                 self.enemies_amount = (self.enemy_list.count(0), self.enemy_list.count(1),
                                        self.enemy_list.count(2), self.enemy_list.count(3))
             self.render()
@@ -1041,6 +1041,7 @@ class Menu:
         self.font = pygame.font.SysFont(None, 40)
         self.buttons = {'Новая игра': {'font': self.font, 'selected': False, 'pos': None},
                         'Продолжить': {'font': self.font, 'selected': False, 'pos': None},
+                        'Конструктор': {'font': self.font, 'selected': False, 'pos': None},
                         'Выход': {'font': self.font, 'selected': False, 'pos': None}}
         self.logo = load_image('logo', color_key=(0, 0, 0))
         self.copyright = load_image('copyright', color_key=(0, 0, 0))
@@ -1112,6 +1113,9 @@ class Menu:
                             self.parent.run = True
                             self.parent.load_config()
                             break
+                        elif k == 'Конструктор':
+                            Constructor(self)
+                            break
                         elif k == 'Выход':
                             self.running = False
                             self.parent.run = False
@@ -1122,6 +1126,145 @@ class Menu:
 
     def get_resolution(self):
         return ctypes.windll.user32.GetSystemMetrics(0), ctypes.windll.user32.GetSystemMetrics(1)
+
+
+class Constructor:
+    def __init__(self, menu):
+        self.menu = menu
+        self.width, self.height = WINDOW_SIZE
+        pygame.font.init()
+        if self.menu.parent.fullscreen_mode:
+            self.screen = pygame.display.set_mode(self.menu.get_size(), pygame.FULLSCREEN)
+        else:
+            self.screen = pygame.display.set_mode(WINDOW_SIZE)
+        self.spawn_pos = ((0, 0), (0, 1), (1, 0), (1, 1),
+                          (12, 0), (12, 1), (13, 0), (13, 1),
+                          (24, 0), (24, 1), (25, 0), (25, 1))
+        self.blocks = pygame.sprite.Group()
+        for x in self.spawn_pos[::4]:
+            sprite = pygame.sprite.Sprite()
+            sprite.image = load_image('spawn_animation_7', (CELL_SIZE * 2, CELL_SIZE * 2), -1)
+            sprite.rect = sprite.image.get_rect()
+            sprite.rect.topleft = (x[0] * CELL_SIZE, x[1] * CELL_SIZE)
+            self.blocks.add(sprite)
+        self.info_image = load_image('constructor_info')
+        self.flag_image = load_image('flag', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
+        self.curr_x = 0
+        self.curr_y = 0
+        self.map = [[None for _ in range(26)] for __ in range(26)]
+        self.load_level()
+        self.running = True
+        self.main_loop()
+
+    def main_loop(self):
+        while self.running:
+            self.check_events()
+            self.render()
+
+    def render(self):
+        canvas = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
+        canvas.fill((0, 0, 0))
+        self.blocks.draw(canvas)
+        canvas.blit(self.flag_image, (PLAYGROUND_WIDTH // 2 - CELL_SIZE + 5, PLAYGROUND_WIDTH - CELL_SIZE * 2 + 5))
+        pygame.draw.rect(canvas, (255, 255, 255), (self.curr_x * CELL_SIZE,
+                                                   self.curr_y * CELL_SIZE, CELL_SIZE, CELL_SIZE), 2)
+        self.screen.fill((192, 192, 192))
+        sc_width, sc_height = self.screen.get_size()
+        self.screen.blit(canvas, (sc_width // 32,
+                                  sc_height // 2 - canvas.get_height() // 2))
+        self.screen.blit(self.info_image, (canvas.get_width() + 70, 50))
+        pygame.display.flip()
+
+    def check_events(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_LEFT:
+                    self.curr_x = (self.curr_x - 1) % 26
+                elif event.key == pygame.K_RIGHT:
+                    self.curr_x = (self.curr_x + 1) % 26
+                elif event.key == pygame.K_UP:
+                    self.curr_y = (self.curr_y - 1) % 26
+                elif event.key == pygame.K_DOWN:
+                    self.curr_y = (self.curr_y + 1) % 26
+                elif event.key == pygame.K_1:
+                    self.change_map(BrickWall(self.curr_x * CELL_SIZE, self.curr_y * CELL_SIZE))
+                elif event.key == pygame.K_2:
+                    self.change_map(StrongBrickWall(self.curr_x * CELL_SIZE, self.curr_y * CELL_SIZE))
+                elif event.key == pygame.K_3:
+                    self.change_map(WaterWall(self.curr_x * CELL_SIZE, self.curr_y * CELL_SIZE))
+                elif event.key == pygame.K_4:
+                    self.change_map(IceWall(self.curr_x * CELL_SIZE, self.curr_y * CELL_SIZE))
+                elif event.key == pygame.K_5:
+                    self.change_map(GrassWall(self.curr_x * CELL_SIZE, self.curr_y * CELL_SIZE))
+                elif event.key == pygame.K_r:
+                    self.change_map(None)
+                elif event.key == pygame.K_ESCAPE:
+                    self.running = False
+                elif event.key == pygame.K_s:
+                    self.save()
+
+    def load_level(self):
+        _map = read_map('data/levels/basic_map.txt', False)
+        for i in range(len(_map)):
+            for j in range(len(_map)):
+                if _map[i][j] == 1:
+                    self.map[i][j] = BrickWall(j * CELL_SIZE, i * CELL_SIZE)
+                elif _map[i][j] == 2:
+                    self.map[i][j] = StrongBrickWall(j * CELL_SIZE, i * CELL_SIZE)
+                elif _map[i][j] == 3:
+                    self.map[i][j] = WaterWall(j * CELL_SIZE, i * CELL_SIZE)
+                elif _map[i][j] == 4:
+                    self.map[i][j] = IceWall(j * CELL_SIZE, i * CELL_SIZE)
+                elif _map[i][j] == 5:
+                    self.map[i][j] = GrassWall(j * CELL_SIZE, i * CELL_SIZE)
+        for i in self.map:
+            for j in i:
+                if j:
+                    self.blocks.add(j)
+
+    def save(self):
+        res = [['0' for _ in range(26)] for __ in range(26)]
+        for i in range(len(self.map)):
+            for j in range(len(self.map[0])):
+                if isinstance(self.map[i][j], BrickWall):
+                    res[i][j] = '1'
+                elif isinstance(self.map[i][j], StrongBrickWall):
+                    res[i][j] = '2'
+                elif isinstance(self.map[i][j], WaterWall):
+                    res[i][j] = '3'
+                elif isinstance(self.map[i][j], IceWall):
+                    res[i][j] = '4'
+                elif isinstance(self.map[i][j], GrassWall):
+                    res[i][j] = '5'
+                else:
+                    res[i][j] = '0'
+        res.append(['16 ', '4 ', '0 ', '0'])
+        mx = 1
+        for item in os.listdir('data/constructor'):
+            num = item[6:-4]
+            if item[:6] == 'level_' and num.isdigit() and item[-4:] == '.txt':
+                if int(num) >= mx:
+                    mx = int(num) + 1
+        with open(F'data/constructor/level_{str(mx)}.txt', mode='w', encoding='utf-8') as ouf:
+            ouf.write('\n'.join([''.join(x) for x in res]))
+
+    def change_map(self, block):
+        if self.is_right_place(self.curr_x, self.curr_y):
+            curr_block = self.map[self.curr_y][self.curr_x]
+            if curr_block:
+                self.blocks.remove(curr_block)
+            self.map[self.curr_y][self.curr_x] = block
+            if block:
+                self.blocks.add(block)
+
+    def is_right_place(self, x, y):
+        if y in range(23, 26) and x in range(11, 15):
+            return False
+        if (x, y) in self.spawn_pos:
+            return False
+        return True
 
 
 def get_collided_by_mask(sprite_1: pygame.sprite.Sprite, *groups):
@@ -1140,17 +1283,20 @@ def get_collided_by_rect(sprite, *groups: pygame.sprite.Group):
     return collided
 
 
-def read_map(filename: str):
+def read_map(filename: str, enemies=True):
     with open(filename) as file:
         content = file.readlines()
     res = []
-    for i in range(len(content[:-1])):
+    for i in range(len(content[:-1]) if enemies else len(content)):
         line = []
         for j in range(len(content[i].strip())):
             line.append(int(content[i][j]))
         res.append(line)
-    enemies = tuple(map(int, content[-1].strip().split()))
-    return res, enemies
+    if enemies:
+        enemies = tuple(map(int, content[-1].strip().split()))
+        return res, enemies
+    else:
+        return res
 
 
 if __name__ == '__main__':
