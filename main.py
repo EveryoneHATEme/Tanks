@@ -11,7 +11,7 @@ CELL_SIZE = PLAYGROUND_WIDTH // 26
 UP, DOWN, LEFT, RIGHT, SHOOT = pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT, pygame.K_SPACE
 BUTTONS = {UP, DOWN, LEFT, RIGHT, SHOOT}
 EXIT_TO_MENU = True
-SOUND_ON = False
+SOUND_ON = True
 FPS = 30
 
 
@@ -51,6 +51,8 @@ class Game:
         self.ice_texture = load_image('ice_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
         self.grass_texture = load_image('grass_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
         self.level = 1
+        self.player_tier = 1
+        self.player_lives = 3
         Menu(self)
         if self.run:
             self.game_over = False
@@ -74,7 +76,7 @@ class Game:
             self.game_over_group = pygame.sprite.Group()
             self.game_over_sprite = pygame.sprite.Sprite(self.game_over_group)
             self.game_over_sprite.image = load_image('game_over', (100, 50), -1)
-            self.game_over_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - 15, PLAYGROUND_WIDTH, 31, 15)
+            self.game_over_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - 50, PLAYGROUND_WIDTH, 31, 15)
             self.loading_screen_1 = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
             self.loading_screen_1.fill((192, 192, 192))
             self.loading_screen_1_pos = [0, -PLAYGROUND_WIDTH]
@@ -102,6 +104,9 @@ class Game:
             self.screen = pygame.display.set_mode(WINDOW_SIZE)
             if self.fullscreen_mode:
                 pygame.display.set_mode(self.get_resolution(), pygame.FULLSCREEN)
+            self.music_pause = pygame.mixer.Sound('data/music/pause.ogg')
+            self.music_stop = pygame.mixer.Sound('data/music/stop.ogg')
+            self.music_stop.set_volume(0.05)
             self.init_level(f'data/levels/level_{self.level}.txt')
             self.time = time.time()
             self.clock = pygame.time.Clock()
@@ -109,11 +114,11 @@ class Game:
 
     def main_loop(self):
         global EXIT_TO_MENU
-        if SOUND_ON:
-            self.music_pause = pygame.mixer.Sound('data/music/pause.ogg')
-            self.music_stop = pygame.mixer.Sound('data/music/stop.ogg')
-            self.music_stop.set_volume(0.05)
-            self.music_stop.play()
+        if self.run:
+            if SOUND_ON:
+                self.music_stop.play()
+        for i in range(15):
+            self.create_bonus()
         while self.run:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -161,7 +166,9 @@ class Game:
                     self.time = time.time()
                 if len(self.players.sprites()) == 0:
                     self.game_over = True
-
+                    self.level = 1
+                    self.player_tier = 1
+                    self.player_lives = 3
                     self.save_config()
                 if self.game_over and SOUND_ON:
                     self.play_game_over_music()
@@ -169,7 +176,7 @@ class Game:
                 if len(self.enemy_list) == 0 and len(self.enemies.sprites()) == 0:
                     self.level += 1
                     self.save_config()
-                    self.init_level(f'data/levels/level_{self.level}.txt')
+                    self.init_level(f'data/levels/level_{self.level}.txt', self.players.sprites()[0].tier, self.players.sprites()[0].lives)
                 self.enemies_amount = (self.enemy_list.count(0), self.enemy_list.count(1),
                                        self.enemy_list.count(2), self.enemy_list.count(3))
             self.render()
@@ -189,20 +196,16 @@ class Game:
                 key, value = key.strip(), value.strip()
                 if key == 'level':
                     self.level = int(value)
+                elif key == 'tier':
+                    self.player_tier = int(value)
+                elif key == 'lives':
+                    self.player_lives = int(value)
 
     def save_config(self):
-        with open('config.txt', mode='r', encoding='utf-8') as inf:
-            new_config = []
-            text = inf.readlines()
-            for line in text:
-                key, value = line.split(':')
-                key, value = key.strip(), value.strip()
-                if key == 'level':
-                    new_config.append(F'{key}: {self.level}')
-                else:
-                    new_config.append(F'{key}: {value}')
         with open('config.txt', mode='w', encoding='utf-8') as outf:
-            outf.write('\n'.join(new_config))
+            outf.write(F'level: {self.level}\n')
+            outf.write(F'tier: {self.players.sprites()[0].tier if self.players.sprites() else 1}\n')
+            outf.write(F'lives: {self.players.sprites()[0].lives if self.players.sprites() else 1}\n')
 
     def spawn_enemy(self):
         coords = next(self.enemy_positions)
@@ -238,7 +241,7 @@ class Game:
             self.flag_broken_group.draw(canvas)
             self.game_over_group.draw(canvas)
             self.game_over_sprite.rect.y -= 5
-            if self.game_over_sprite.rect.y <= -30:
+            if self.game_over_sprite.rect.y <= -70:
                 self.run = False
         self.screen.fill((192, 192, 192))
         if self.starting_level:
@@ -327,13 +330,13 @@ class Game:
         pygame.draw.rect(self.screen, (128, 128, 128), rect)
         self.screen.blit(self.player_texture, (rect.left + CELL_SIZE - self.player_texture.get_width() // 2,
                                                rect.top + CELL_SIZE - self.player_texture.get_height() // 2))
-        label = font.render(f'{self.players.sprites()[0].lives}', True, (0, 0, 0))
+        label = font.render(f'{self.players.sprites()[0].lives if self.players.sprites() else 0}', True, (0, 0, 0))
         self.screen.blit(label, (rect.left + CELL_SIZE * 7 - label.get_width() // 2,
                                  rect.top + CELL_SIZE - label.get_height() // 2))
         pygame.draw.rect(self.screen, (0, 0, 0), rect, 2)
         pygame.display.flip()
 
-    def init_level(self, filename):
+    def init_level(self, filename, player_tier=1, player_lives=3):
         """
         Пробегаемся по массиву, полученному из файла с картой
         инициализируем и добавляем в список стены
@@ -375,8 +378,7 @@ class Game:
                     self.ice_blocks.add(IceWall(j * CELL_SIZE, i * CELL_SIZE))
                 elif _map[i][j] == 5:
                     self.grass_blocks.add(GrassWall(j * CELL_SIZE, i * CELL_SIZE))
-
-        self.spawning_tanks.add(Player(CELL_SIZE * 8, CELL_SIZE * 24, self, self.players))
+        self.spawning_tanks.add(Player(CELL_SIZE * 8, CELL_SIZE * 24, self, player_tier, player_lives, self.players))
         self.enemy_list = [0 for _ in range(self.enemies_amount[0])] + \
                           [1 for _ in range(self.enemies_amount[1])] + \
                           [2 for _ in range(self.enemies_amount[2])] + \
@@ -491,16 +493,27 @@ class Tank(pygame.sprite.Sprite):
         if self.durability <= 0:
             self.terminate()
             return
-
-        self.rect.y += self.vel_y
-        collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
-        if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
-            self.rect.y -= self.vel_y
-        self.rect.x += self.vel_x
+        if len(get_collided_by_rect(self, game.players, game.enemies)) > 1:
+            self.rect.y += self.vel_y
+            collides = get_collided_by_rect(self, game.blocks)
+            if len(collides) or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
+                self.rect.y -= self.vel_y
+        else:
+            self.rect.y += self.vel_y
+            collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
+            if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
+                self.rect.y -= self.vel_y
+        if len(get_collided_by_rect(self, game.players, game.enemies)) > 1:
+            self.rect.x += self.vel_x
+            collides = get_collided_by_rect(self, game.blocks)
+            if len(collides) or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
+                self.rect.x -= self.vel_x
+        else:
+            self.rect.x += self.vel_x
+            collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
+            if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
+                self.rect.x -= self.vel_x
         self.stay = False
-        collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
-        if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
-            self.rect.x -= self.vel_x
         if self.vel_x > 0:
             self.facing = RIGHT
             self.angle = 270
@@ -553,28 +566,35 @@ class Tank(pygame.sprite.Sprite):
             elif isinstance(bonus, BonusStar):
                 if self.tier in range(1, 4):
                     self.tier += 1
-                    if self.tier == 2:
-                        self.bullet_speed *= 2
-                        self.animation = cycle((load_image('tier2_tank', (self.cell_size, self.cell_size), -1),
-                                                load_image('tier2_tank_2', (self.cell_size, self.cell_size), -1)))
-                    elif self.tier == 3:
-                        self.bullet_limit = 2
-                        self.animation = cycle((load_image('tier3_tank', (self.cell_size, self.cell_size), -1),
-                                                load_image('tier3_tank_2', (self.cell_size, self.cell_size), -1)))
-                    elif self.tier == 4:
-                        self.durability = 2
-                        self.animation = cycle((load_image('tier4_tank', (self.cell_size, self.cell_size), -1),
-                                                load_image('tier4_tank_2', (self.cell_size, self.cell_size), -1)))
+                    self.change_tier()
             game.bonuses.remove(bonus)
             bonus.terminate()
 
+    def change_tier(self):
+        if self.tier == 2:
+            self.bullet_speed = 480
+            self.animation = cycle((load_image('tier2_tank', (self.cell_size, self.cell_size), -1),
+                                    load_image('tier2_tank_2', (self.cell_size, self.cell_size), -1)))
+        elif self.tier == 3:
+            self.bullet_speed = 480
+            self.bullet_limit = 2
+            self.animation = cycle((load_image('tier3_tank', (self.cell_size, self.cell_size), -1),
+                                    load_image('tier3_tank_2', (self.cell_size, self.cell_size), -1)))
+        elif self.tier == 4:
+            self.bullet_speed = 480
+            self.bullet_limit = 2
+            self.durability = 2
+            self.animation = cycle((load_image('tier4_tank', (self.cell_size, self.cell_size), -1),
+                                    load_image('tier4_tank_2', (self.cell_size, self.cell_size), -1)))
     def make_immortal(self, duration):
         self.immortal = True
         self.immortal_duration = duration
+        self.immortal_count = 0
 
     def make_frozen(self, duration):
         self.frozen = True
         self.freeze_duration = duration
+        self.freeze_count = 0
 
     def shoot(self):
         if not self.frozen and self.spawn_animation is None:
@@ -643,16 +663,31 @@ class Enemy(Tank):
             self.terminate()
             return
         if not self.frozen:
-            self.rect.y += self.vel_y
-            collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
-            if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
-                self.rect.y -= self.vel_y
-                self.choose_new_direction()
-            self.rect.x += self.vel_x
-            collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
-            if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
-                self.rect.x -= self.vel_x
-                self.choose_new_direction()
+            if len(get_collided_by_rect(self, game.players, game.enemies)) > 1:
+                self.rect.y += self.vel_y
+                collides = get_collided_by_rect(self, game.blocks)
+                if len(collides) or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
+                    self.rect.y -= self.vel_y
+                    self.choose_new_direction(True)
+            else:
+                self.rect.y += self.vel_y
+                collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
+                if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
+                    self.rect.y -= self.vel_y
+                    self.choose_new_direction()
+
+            if len(get_collided_by_rect(self, game.players, game.enemies)) > 1:
+                self.rect.x += self.vel_x
+                collides = get_collided_by_rect(self, game.blocks)
+                if len(collides) or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
+                    self.rect.x -= self.vel_x
+                    self.choose_new_direction(True)
+            else:
+                self.rect.x += self.vel_x
+                collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
+                if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
+                    self.rect.x -= self.vel_x
+                    self.choose_new_direction()
         else:
             self.stay = True
             if self.freeze_count >= self.freeze_duration:
@@ -666,7 +701,7 @@ class Enemy(Tank):
             self.image = next(self.animation)
             self.image = pygame.transform.rotate(self.image, self.angle)
 
-    def choose_new_direction(self):
+    def choose_new_direction(self, ignore_players=False):
         directions = [UP, RIGHT, DOWN, LEFT]
 
         inverse_direction = directions[(directions.index(self.facing) + 2) % 4]
@@ -681,7 +716,10 @@ class Enemy(Tank):
             if direction == UP:
                 new_sprite = pygame.sprite.Sprite()
                 new_sprite.rect = self.rect.move(0, -self.cell_size)
-                collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
+                if ignore_players:
+                    collides = get_collided_by_rect(new_sprite, game.blocks)
+                else:
+                    collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
                 if len(collides) == 0 and 0 <= new_sprite.rect.top:
                     new_direction = direction
                     del new_sprite
@@ -689,7 +727,10 @@ class Enemy(Tank):
             elif direction == RIGHT:
                 new_sprite = pygame.sprite.Sprite()
                 new_sprite.rect = self.rect.move(self.cell_size, 0)
-                collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
+                if ignore_players:
+                    collides = get_collided_by_rect(new_sprite, game.blocks)
+                else:
+                    collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
                 if len(collides) == 0 and PLAYGROUND_WIDTH >= new_sprite.rect.right:
                     new_direction = direction
                     del new_sprite
@@ -697,7 +738,10 @@ class Enemy(Tank):
             elif direction == DOWN:
                 new_sprite = pygame.sprite.Sprite()
                 new_sprite.rect = self.rect.move(0, self.cell_size)
-                collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
+                if ignore_players:
+                    collides = get_collided_by_rect(new_sprite, game.blocks)
+                else:
+                    collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
                 if len(collides) == 0 and PLAYGROUND_WIDTH >= new_sprite.rect.bottom:
                     new_direction = direction
                     del new_sprite
@@ -705,7 +749,10 @@ class Enemy(Tank):
             elif direction == LEFT:
                 new_sprite = pygame.sprite.Sprite()
                 new_sprite.rect = self.rect.move(-self.cell_size, 0)
-                collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
+                if ignore_players:
+                    collides = get_collided_by_rect(new_sprite, game.blocks)
+                else:
+                    collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
                 if len(collides) == 0 and 0 <= new_sprite.rect.left:
                     new_direction = direction
                     del new_sprite
@@ -783,13 +830,16 @@ class StrongTank(Enemy):
 
 
 class Player(Tank):
-    def __init__(self, x, y, game, *groups):
+    def __init__(self, x, y, game, tier, lives, *groups):
         super().__init__(x, y, 90, game, *groups)
         self.animation = cycle((load_image('tier1_tank', (self.cell_size, self.cell_size), -1),
                                 load_image('tier1_tank_2', (self.cell_size, self.cell_size), -1)))
         self.image = next(self.animation)
+        self.vel_x, self.vel_y = 0, 0
         self.score = 0
-        self.lives = 3
+        self.lives = lives
+        self.tier = tier
+        self.change_tier()
 
     def check_controls(self, event: pygame.event.EventType):
         if pygame.key.get_pressed()[pygame.K_LEFT]:
@@ -811,7 +861,7 @@ class Player(Tank):
             self.shoot()
 
     def respawn(self):
-        self.__init__(CELL_SIZE * 8, CELL_SIZE * 24, game, game.players)
+        self.__init__(CELL_SIZE * 8, CELL_SIZE * 24, game, 1, 3, game.players)
 
 
 class Block(pygame.sprite.Sprite):
@@ -940,9 +990,13 @@ class Bullet(pygame.sprite.Sprite):
                 return
             collided = get_collided_by_mask(self, game.blocks)
             if collided:
+                terminate = False
                 for sprite in collided:
-                    sprite.is_under_fire(self)
-                self.terminate()
+                    if not isinstance(sprite, WaterWall):
+                        sprite.is_under_fire(self)
+                        terminate = True
+                if terminate:
+                    self.terminate()
         elif isinstance(self.owner, Enemy):
             collided = get_collided_by_mask(self, game.players)
             if collided:
@@ -951,14 +1005,21 @@ class Bullet(pygame.sprite.Sprite):
                 return
             collided = get_collided_by_mask(self, game.blocks)
             if collided:
+                terminate = False
                 for sprite in collided:
-                    sprite.is_under_fire(self)
-                self.terminate()
+                    if not isinstance(sprite, WaterWall):
+                        sprite.is_under_fire(self)
+                        terminate = True
+                if terminate:
+                    self.terminate()
         if get_collided_by_mask(self, game.flag_group):
             if SOUND_ON:
                 pygame.mixer.Sound('data/music/base_explosion.ogg').play()
             self.terminate()
             game.game_over = True
+            self.level = 1
+            self.player_tier = 1
+            self.player_lives = 3
             game.save_config()
         collided = get_collided_by_mask(self, game.bullets)
         if collided:
@@ -1164,15 +1225,16 @@ class Menu:
                 if event.key == pygame.K_ESCAPE:
                     self.show_levels = False
             elif event.type == pygame.MOUSEMOTION:
-                mouse_x, mouse_y = event.pos
-                # Проверка на наведение мышки на кнопку
-                for key, value in self.buttons.items():
-                    button_x, button_y, button_width, button_height = value['pos']
-                    if mouse_x in range(button_x, button_width + 1) and\
-                            mouse_y in range(button_y, button_height + 1):
-                        self.buttons[key]['selected'] = True
-                    else:
-                        self.buttons[key]['selected'] = False
+                if not self.show_levels:
+                    mouse_x, mouse_y = event.pos
+                    # Проверка на наведение мышки на кнопку
+                    for key, value in self.buttons.items():
+                        button_x, button_y, button_width, button_height = value['pos']
+                        if mouse_x in range(button_x, button_width + 1) and\
+                                mouse_y in range(button_y, button_height + 1):
+                            self.buttons[key]['selected'] = True
+                        else:
+                            self.buttons[key]['selected'] = False
             elif event.type == pygame.MOUSEBUTTONUP and event.button not in (4, 5):
                 if self.show_levels:
                     coords = cycle([0, 256, 512])
@@ -1184,33 +1246,34 @@ class Menu:
                             self.running = False
                             self.parent.run = True
                             break
-                for k, v in self.buttons.items():
-                    if v['selected']:
-                        if k == 'Новая игра':
-                            self.show_levels = True
-                            if os.path.exists('data/levels'):
-                                for item in os.listdir('data/levels'):
-                                    num = item[6:-4]
-                                    if item[:6] == 'level_' and num.isdigit() and item[-4:] == '.txt':
-                                        self.shortcuts.append(self.create_shortcut(f'data/levels/{item}'))
-                            break
-                        elif k == 'Продолжить':
-                            self.running = False
-                            self.parent.run = True
-                            self.parent.load_config()
-                            break
-                        elif k == 'Конструктор':
-                            Constructor(self)
-                            break
-                        elif k == 'Выход':
-                            self.running = False
-                            self.parent.run = False
-                            break
+                else:
+                    for k, v in self.buttons.items():
+                        if v['selected']:
+                            if k == 'Новая игра':
+                                self.show_levels = True
+                                if os.path.exists('data/levels'):
+                                    for item in os.listdir('data/levels'):
+                                        num = item[6:-4]
+                                        if item[:6] == 'level_' and num.isdigit() and item[-4:] == '.txt':
+                                            self.shortcuts.append(self.create_shortcut(f'data/levels/{item}'))
+                                break
+                            elif k == 'Продолжить':
+                                self.running = False
+                                self.parent.run = True
+                                self.parent.load_config()
+                                break
+                            elif k == 'Конструктор':
+                                Constructor(self)
+                                break
+                            elif k == 'Выход':
+                                self.running = False
+                                self.parent.run = False
+                                break
             elif event.type == pygame.MOUSEBUTTONDOWN and self.show_levels:
                 if event.button == 4:
-                    self.shift -= 100
-                elif event.button == 5 and self.shift < 0:
                     self.shift += 100
+                elif event.button == 5 and self.shift < 0:
+                    self.shift -= 100
 
     def get_size(self):
         return self.width, self.height
