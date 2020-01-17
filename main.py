@@ -34,13 +34,16 @@ def load_image(name, size=None, color_key=None):
 
 class Game:
     def __init__(self):
+        self.music_lose = pygame.mixer.Sound('data/music/game_over.ogg')
+        self.game_over_flag = 0
         self.run = True
+        self.game_over = False
         self.fullscreen_mode = False
         self.simple_enemy_texture = load_image('enemy_tier1_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.quick_enemy_texture = load_image('enemy_tier2_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.quickfire_enemy_texture = load_image('enemy_tier3_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.strong_enemy_texture = load_image('enemy_tier4_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), (0, 0, 0))
-        self.level = 4
+        self.level = 1
         Menu(self)
         if self.run:
             self.game_over = False
@@ -63,7 +66,7 @@ class Game:
             self.base_protection_count = 0
             self.game_over_group = pygame.sprite.Group()
             self.game_over_sprite = pygame.sprite.Sprite(self.game_over_group)
-            self.game_over_sprite.image = load_image('game_over', (31, 15), -1)
+            self.game_over_sprite.image = load_image('game_over', (100, 50), -1)
             self.game_over_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - 15, PLAYGROUND_WIDTH, 31, 15)
             self.loading_screen_1 = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
             self.loading_screen_1.fill((192, 192, 192))
@@ -144,7 +147,11 @@ class Game:
                     self.time = time.time()
                 if len(self.players.sprites()) == 0:
                     self.game_over = True
+                    self.play_game_over_music()
+                    pygame.mixer.music.load('data/music/game_over.ogg')
+                    pygame.mixer.music.play()
                     self.save_config()
+
                 if len(self.enemy_list) == 0 and len(self.enemies.sprites()) == 0:
                     self.level += 1
                     self.save_config()
@@ -153,6 +160,11 @@ class Game:
                                        self.enemy_list.count(2), self.enemy_list.count(3))
             self.render()
             self.clock.tick(FPS)
+
+    def play_game_over_music(self):
+        if self.game_over_flag == 0:
+            self.music_lose.play()
+            self.game_over_flag = 1
 
     def load_config(self):
         with open('config.txt', mode='r', encoding='utf-8') as inf:
@@ -748,6 +760,9 @@ class StrongTank(Enemy):
 class Player(Tank):
     def __init__(self, x, y, game, *groups):
         super().__init__(x, y, 90, game, *groups)
+        pygame.mixer.music.load('data/music/stop.mp3')
+        pygame.mixer.music.set_volume(0.5)
+        pygame.mixer.music.play()
         self.animation = cycle((load_image('tier1_tank', (self.cell_size, self.cell_size), -1),
                                load_image('tier1_tank_2', (self.cell_size, self.cell_size), -1)))
         self.image = next(self.animation)
