@@ -101,6 +101,10 @@ class Game:
             self.bonus_time = time.time()
 
     def main_loop(self):
+        self.music_pause = pygame.mixer.Sound('data/music/pause.ogg')
+        self.music_stop = pygame.mixer.Sound('data/music/stop.ogg')
+        self.music_stop.set_volume(0.05)
+        self.music_stop.play()
         global EXIT_TO_MENU
         while self.run:
             for event in pygame.event.get():
@@ -115,6 +119,7 @@ class Game:
                     self.fullscreen_mode = not self.fullscreen_mode
                 elif event.type == pygame.KEYUP and event.key == pygame.K_ESCAPE:
                     self.pause = not self.pause
+                    self.music_pause.play()
                 if not self.pause:
                     for player in self.players.sprites():
                         player.check_controls(event)
@@ -147,10 +152,11 @@ class Game:
                     self.time = time.time()
                 if len(self.players.sprites()) == 0:
                     self.game_over = True
-                    self.play_game_over_music()
-                    pygame.mixer.music.load('data/music/game_over.ogg')
-                    pygame.mixer.music.play()
+
                     self.save_config()
+                if self.game_over == True:
+
+                    self.play_game_over_music()
 
                 if len(self.enemy_list) == 0 and len(self.enemies.sprites()) == 0:
                     self.level += 1
@@ -163,6 +169,7 @@ class Game:
 
     def play_game_over_music(self):
         if self.game_over_flag == 0:
+            self.music_stop.stop()
             self.music_lose.play()
             self.game_over_flag = 1
 
@@ -760,9 +767,6 @@ class StrongTank(Enemy):
 class Player(Tank):
     def __init__(self, x, y, game, *groups):
         super().__init__(x, y, 90, game, *groups)
-        pygame.mixer.music.load('data/music/stop.mp3')
-        pygame.mixer.music.set_volume(0.5)
-        pygame.mixer.music.play()
         self.animation = cycle((load_image('tier1_tank', (self.cell_size, self.cell_size), -1),
                                load_image('tier1_tank_2', (self.cell_size, self.cell_size), -1)))
         self.image = next(self.animation)
