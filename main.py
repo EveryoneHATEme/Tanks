@@ -11,7 +11,7 @@ CELL_SIZE = PLAYGROUND_WIDTH // 26
 UP, DOWN, LEFT, RIGHT, SHOOT = pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT, pygame.K_SPACE
 BUTTONS = {UP, DOWN, LEFT, RIGHT, SHOOT}
 EXIT_TO_MENU = True
-SOUND_ON = True
+SOUND_ON = False
 FPS = 30
 
 
@@ -34,7 +34,8 @@ def load_image(name, size=None, color_key=None):
 
 class Game:
     def __init__(self):
-        self.music_lose = pygame.mixer.Sound('data/music/game_over.ogg')
+        if SOUND_ON:
+            self.music_lose = pygame.mixer.Sound('data/music/game_over.ogg')
         self.game_over_flag = 0
         self.run = True
         self.game_over = False
@@ -43,6 +44,11 @@ class Game:
         self.quick_enemy_texture = load_image('enemy_tier2_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.quickfire_enemy_texture = load_image('enemy_tier3_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.strong_enemy_texture = load_image('enemy_tier4_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), (0, 0, 0))
+        self.brick_wall_texture = load_image('brick_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
+        self.concrete_wall_texture = load_image('strong_brick_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
+        self.water_texture = load_image('water_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
+        self.ice_texture = load_image('ice_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
+        self.grass_texture = load_image('grass_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
         self.level = 1
         Menu(self)
         if self.run:
@@ -141,7 +147,7 @@ class Game:
                     elif isinstance(tank, Enemy):
                         self.enemies.add(tank)
                     self.spawning_tanks.remove(tank)
-                if time.time() - self.time > (190 - self.level * 4 - (len(self.players) - 1) * 20) // 60 and\
+                if time.time() - self.time > (190 - self.level * 4 - (len(self.players) - 1) * 20) // 60 and \
                         len(self.enemy_list) > 0 and len(self.enemies.sprites()) < 4 or len(self.enemy_list) == 20:
                     self.spawn_enemy()
                     self.time = time.time()
@@ -352,17 +358,17 @@ class Game:
                     self.grass_blocks.add(GrassWall(j * CELL_SIZE, i * CELL_SIZE))
 
         self.spawning_tanks.add(Player(CELL_SIZE * 8, CELL_SIZE * 24, self, self.players))
-        self.enemy_list = [0 for _ in range(self.enemies_amount[0])] +\
-                          [1 for _ in range(self.enemies_amount[1])] +\
-                          [2 for _ in range(self.enemies_amount[2])] +\
+        self.enemy_list = [0 for _ in range(self.enemies_amount[0])] + \
+                          [1 for _ in range(self.enemies_amount[1])] + \
+                          [2 for _ in range(self.enemies_amount[2])] + \
                           [3 for _ in range(self.enemies_amount[3])]
         shuffle(self.enemy_list)
         del self.enemy_list[20:]
 
     def create_bonus(self):
         num = randint(0, 5)
-        x, y = randint(0, PLAYGROUND_WIDTH - CELL_SIZE * 2),\
-            randint(0, PLAYGROUND_WIDTH - CELL_SIZE * 2)
+        x, y = randint(0, PLAYGROUND_WIDTH - CELL_SIZE * 2), \
+               randint(0, PLAYGROUND_WIDTH - CELL_SIZE * 2)
         if not num:
             self.bonuses.add(BonusStar(x, y))
         elif num == 1:
@@ -760,11 +766,12 @@ class StrongTank(Enemy):
 class Player(Tank):
     def __init__(self, x, y, game, *groups):
         super().__init__(x, y, 90, game, *groups)
-        pygame.mixer.music.load('data/music/stop.mp3')
-        pygame.mixer.music.set_volume(0.5)
-        pygame.mixer.music.play()
+        if SOUND_ON:
+            pygame.mixer.music.load('data/music/stop.mp3')
+            pygame.mixer.music.set_volume(0.5)
+            pygame.mixer.music.play()
         self.animation = cycle((load_image('tier1_tank', (self.cell_size, self.cell_size), -1),
-                               load_image('tier1_tank_2', (self.cell_size, self.cell_size), -1)))
+                                load_image('tier1_tank_2', (self.cell_size, self.cell_size), -1)))
         self.image = next(self.animation)
         self.score = 0
         self.lives = 3
@@ -965,8 +972,8 @@ class TankExplosion(pygame.sprite.Sprite):
         if SOUND_ON:
             pygame.mixer.Sound('data/music/tank_explosion.ogg').play()
         self.animation = iter(
-                [load_image('tank_explosion_0', (CELL_SIZE * 3, CELL_SIZE * 3), -1) for _ in range(4)] +
-                [load_image('tank_explosion_1', (CELL_SIZE * 3, CELL_SIZE * 3), (0, 10)) for _ in range(4)])
+            [load_image('tank_explosion_0', (CELL_SIZE * 3, CELL_SIZE * 3), -1) for _ in range(4)] +
+            [load_image('tank_explosion_1', (CELL_SIZE * 3, CELL_SIZE * 3), (0, 10)) for _ in range(4)])
         self.image = next(self.animation)
         self.rect = self.image.get_rect()
         self.rect.x = tank.rect.x - CELL_SIZE // 2
@@ -1045,7 +1052,7 @@ class BonusTank(Bonus):
 
 
 class Menu:
-    def __init__(self, parent):
+    def __init__(self, parent: Game):
         self.parent = parent
         self.width, self.height = WINDOW_SIZE
         pygame.font.init()
@@ -1061,6 +1068,9 @@ class Menu:
         self.logo = load_image('logo', color_key=(0, 0, 0))
         self.copyright = load_image('copyright', color_key=(0, 0, 0))
         self.running = True
+        self.show_levels = False
+        self.shortcuts = []
+        self.shift = 0
         self.main_loop()
 
     def main_loop(self):
@@ -1071,22 +1081,53 @@ class Menu:
     def render(self):
         self.screen.fill((0, 0, 0))
         self.screen.blit(self.logo, (self.width // 2 - self.logo.get_width() // 2, 30))
-        self.screen.blit(self.copyright, (self.width // 2 - self.copyright.get_width() // 2,
-                                          self.height - self.copyright.get_height() - 20))
-        # Рендерим кнопки
-        for n, (key, value) in enumerate(self.buttons.items()):
-            text_x = self.width // 2 - 77
-            text_y = self.height // 2 - 100 + n * 50
-            button = value['font'].render(key, 1, (255, 255, 255))
-            if value['selected']:
-                default_width, default_height = button.get_width(), button.get_height()
-                button = pygame.font.SysFont(None, 50).render(key, 1, (255, 255, 255))
-                text_x = self.width // 2 - 77 - (button.get_width() - default_width) // 2
-                text_y = self.height // 2 - 100 + n * 50 - (button.get_height() - default_height) // 2
-            self.buttons[key]['pos'] = (text_x, text_y, text_x + button.get_width(), text_y + button.get_height())
-            self.screen.blit(button, (text_x, text_y))
-        # ^ Конец рендера кнопок
+        if self.show_levels:
+            coords = cycle([0, 256, 512])
+            count = 0
+            sub_window = pygame.Surface((752, 489))
+            for shortcut in self.shortcuts:
+                rect = pygame.Rect(next(coords), 256 * (count // 3) + self.shift, 240, 240)
+                sub_window.blit(shortcut, rect.topleft)
+                pygame.draw.rect(sub_window, (255, 255, 255), rect, 5)
+                count += 1
+            self.screen.blit(sub_window, (WINDOW_SIZE[0] // 2 - (240 * 3 + 16 * 2) // 2, 56 + self.logo.get_height()))
+            pygame.draw.rect(self.screen, (255, 255, 255), (WINDOW_SIZE[0] // 2 - (240 * 3 + 16 * 2) // 2 - 1,
+                                                            56 + self.logo.get_height() - 1, 752 + 1, 489 + 1), 1)
+        else:
+            self.screen.blit(self.copyright, (self.width // 2 - self.copyright.get_width() // 2,
+                                              self.height - self.copyright.get_height() - 20))
+            # Рендерим кнопки
+            for n, (key, value) in enumerate(self.buttons.items()):
+                text_x = self.width // 2 - 77
+                text_y = self.height // 2 - 100 + n * 50
+                button = value['font'].render(key, 1, (255, 255, 255))
+                if value['selected']:
+                    default_width, default_height = button.get_width(), button.get_height()
+                    button = pygame.font.SysFont(None, 50).render(key, 1, (255, 255, 255))
+                    text_x = self.width // 2 - 77 - (button.get_width() - default_width) // 2
+                    text_y = self.height // 2 - 100 + n * 50 - (button.get_height() - default_height) // 2
+                self.buttons[key]['pos'] = (text_x, text_y, text_x + button.get_width(), text_y + button.get_height())
+                self.screen.blit(button, (text_x, text_y))
+            # ^ Конец рендера кнопок
         pygame.display.flip()
+
+    def create_shortcut(self, filename):
+        shortcut = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
+        _map, enemies = read_map(filename)
+        for i in range(len(_map)):
+            for j in range(len(_map[i])):
+                if _map[i][j] == 1:
+                    shortcut.blit(self.parent.brick_wall_texture, (j * CELL_SIZE, i * CELL_SIZE))
+                elif _map[i][j] == 2:
+                    shortcut.blit(self.parent.concrete_wall_texture, (j * CELL_SIZE, i * CELL_SIZE))
+                elif _map[i][j] == 3:
+                    shortcut.blit(self.parent.water_texture, (j * CELL_SIZE, i * CELL_SIZE))
+                elif _map[i][j] == 4:
+                    shortcut.blit(self.parent.ice_texture, (j * CELL_SIZE, i * CELL_SIZE))
+                elif _map[i][j] == 5:
+                    shortcut.blit(self.parent.grass_texture, (j * CELL_SIZE, i * CELL_SIZE))
+        shortcut = pygame.transform.scale(shortcut, (240, 240))
+        return shortcut
 
     def check_events(self):
         global EXIT_TO_MENU
@@ -1105,23 +1146,38 @@ class Menu:
                         self.width, self.height = self.get_resolution()
                         pygame.display.set_mode(self.get_size(), pygame.FULLSCREEN)
                     self.parent.fullscreen_mode = not self.parent.fullscreen_mode
+                if event.key == pygame.K_ESCAPE:
+                    self.show_levels = False
             elif event.type == pygame.MOUSEMOTION:
                 mouse_x, mouse_y = event.pos
                 # Проверка на наведение мышки на кнопку
                 for key, value in self.buttons.items():
                     button_x, button_y, button_width, button_height = value['pos']
-                    if mouse_x in range(button_x, button_width + 1) and\
+                    if mouse_x in range(button_x, button_width + 1) and \
                             mouse_y in range(button_y, button_height + 1):
                         self.buttons[key]['selected'] = True
                     else:
                         self.buttons[key]['selected'] = False
-            elif event.type == pygame.MOUSEBUTTONUP:
+            elif event.type == pygame.MOUSEBUTTONUP and event.button not in (4, 5):
+                if self.show_levels:
+                    coords = cycle([0, 256, 512])
+                    for shortcut in range(len(self.shortcuts)):
+                        rect = pygame.Rect(next(coords) + WINDOW_SIZE[0] // 2 - (240 * 3 + 16 * 2) // 2, 256 * \
+                                           (shortcut // 3) + self.shift + 56 + self.logo.get_height(), 240, 240)
+                        if rect.collidepoint(*event.pos):
+                            self.parent.level = shortcut + 1
+                            self.running = False
+                            self.parent.run = True
+                            break
                 for k, v in self.buttons.items():
                     if v['selected']:
                         if k == 'Новая игра':
-                            self.running = False
-                            self.parent.run = True
-                            self.parent.save_config()
+                            self.show_levels = True
+                            if os.path.exists('data/levels'):
+                                for item in os.listdir('data/levels'):
+                                    num = item[6:-4]
+                                    if item[:6] == 'level_' and num.isdigit() and item[-4:] == '.txt':
+                                        self.shortcuts.append(self.create_shortcut(f'data/levels/{item}'))
                             break
                         elif k == 'Продолжить':
                             self.running = False
@@ -1135,6 +1191,11 @@ class Menu:
                             self.running = False
                             self.parent.run = False
                             break
+            elif event.type == pygame.MOUSEBUTTONDOWN and self.show_levels:
+                if event.button == 4:
+                    self.shift -= 100
+                elif event.button == 5 and self.shift < 0:
+                    self.shift += 100
 
     def get_size(self):
         return self.width, self.height
@@ -1257,12 +1318,14 @@ class Constructor:
                     res[i][j] = '0'
         res.append(['16 ', '4 ', '0 ', '0'])
         mx = 1
-        for item in os.listdir('data/constructor'):
+        if not os.path.exists('data/levels'):
+            os.mkdir('data/levels')
+        for item in os.listdir('data/levels'):
             num = item[6:-4]
             if item[:6] == 'level_' and num.isdigit() and item[-4:] == '.txt':
                 if int(num) >= mx:
                     mx = int(num) + 1
-        with open(F'data/constructor/level_{str(mx)}.txt', mode='w', encoding='utf-8') as ouf:
+        with open(F'data/levels/level_{str(mx)}.txt', mode='w', encoding='utf-8') as ouf:
             ouf.write('\n'.join([''.join(x) for x in res]))
 
     def change_map(self, block):
