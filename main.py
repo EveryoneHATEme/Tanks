@@ -1198,7 +1198,7 @@ class Constructor:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
-            if event.type == pygame.KEYDOWN:
+            elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_LEFT:
                     self.curr_x = (self.curr_x - 1) % 26
                 elif event.key == pygame.K_RIGHT:
@@ -1207,22 +1207,26 @@ class Constructor:
                     self.curr_y = (self.curr_y - 1) % 26
                 elif event.key == pygame.K_DOWN:
                     self.curr_y = (self.curr_y + 1) % 26
-                elif event.key == pygame.K_1:
-                    self.change_map(BrickWall(self.curr_x * CELL_SIZE, self.curr_y * CELL_SIZE))
-                elif event.key == pygame.K_2:
-                    self.change_map(StrongBrickWall(self.curr_x * CELL_SIZE, self.curr_y * CELL_SIZE))
-                elif event.key == pygame.K_3:
-                    self.change_map(WaterWall(self.curr_x * CELL_SIZE, self.curr_y * CELL_SIZE))
-                elif event.key == pygame.K_4:
-                    self.change_map(IceWall(self.curr_x * CELL_SIZE, self.curr_y * CELL_SIZE))
-                elif event.key == pygame.K_5:
-                    self.change_map(GrassWall(self.curr_x * CELL_SIZE, self.curr_y * CELL_SIZE))
-                elif event.key == pygame.K_r:
-                    self.change_map(None)
                 elif event.key == pygame.K_ESCAPE:
                     self.running = False
                 elif event.key == pygame.K_s:
                     self.save()
+        self.check_controls()
+
+    def check_controls(self):
+        pygame.key.get_pressed()
+        if pygame.key.get_pressed()[pygame.K_1]:
+            self.change_map(BrickWall(self.curr_x * CELL_SIZE, self.curr_y * CELL_SIZE))
+        elif pygame.key.get_pressed()[pygame.K_2]:
+            self.change_map(StrongBrickWall(self.curr_x * CELL_SIZE, self.curr_y * CELL_SIZE))
+        elif pygame.key.get_pressed()[pygame.K_3]:
+            self.change_map(WaterWall(self.curr_x * CELL_SIZE, self.curr_y * CELL_SIZE))
+        elif pygame.key.get_pressed()[pygame.K_4]:
+            self.change_map(IceWall(self.curr_x * CELL_SIZE, self.curr_y * CELL_SIZE))
+        elif pygame.key.get_pressed()[pygame.K_5]:
+            self.change_map(GrassWall(self.curr_x * CELL_SIZE, self.curr_y * CELL_SIZE))
+        elif pygame.key.get_pressed()[pygame.K_r]:
+            self.change_map(None)
 
     def load_level(self):
         _map = read_map('data/levels/basic_map.txt', False)
