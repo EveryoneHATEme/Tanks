@@ -40,6 +40,7 @@ class Game:
         self.run = True
         self.game_over = False
         self.fullscreen_mode = False
+        self.player_texture = load_image('tier2_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.simple_enemy_texture = load_image('enemy_tier1_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.quick_enemy_texture = load_image('enemy_tier2_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.quickfire_enemy_texture = load_image('enemy_tier3_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
@@ -311,6 +312,16 @@ class Game:
         label = font.render(f'{self.enemies_amount[3]}', True, (0, 0, 0))
         self.screen.blit(label, (rect.left + CELL_SIZE * 7 - label.get_width() // 2,
                                  rect.top + CELL_SIZE * 7 - label.get_height() // 2))
+        pygame.draw.rect(self.screen, (0, 0, 0), rect, 2)
+        rect = pygame.Rect(sc_width // 32 + canvas.get_width() + 5,
+                           sc_height // 2 - canvas.get_height() // 2 + canvas.get_height() - CELL_SIZE * 2,
+                           CELL_SIZE * 8, CELL_SIZE * 2)
+        pygame.draw.rect(self.screen, (128, 128, 128), rect)
+        self.screen.blit(self.player_texture, (rect.left + CELL_SIZE - self.player_texture.get_width() // 2,
+                                               rect.top + CELL_SIZE - self.player_texture.get_height() // 2))
+        label = font.render(f'{self.players.sprites()[0].lives}', True, (0, 0, 0))
+        self.screen.blit(label, (rect.left + CELL_SIZE * 7 - label.get_width() // 2,
+                                 rect.top + CELL_SIZE - label.get_height() // 2))
         pygame.draw.rect(self.screen, (0, 0, 0), rect, 2)
         pygame.display.flip()
 
