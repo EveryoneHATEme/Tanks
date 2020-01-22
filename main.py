@@ -1147,6 +1147,144 @@ class Menu:
         return ctypes.windll.user32.GetSystemMetrics(0), ctypes.windll.user32.GetSystemMetrics(1)
 
 
+class LevelMenu:
+    def __init__(self, menu: Menu):
+        self.menu = menu
+        self.width, self.height = WINDOW_SIZE
+        pygame.font.init()
+        if self.menu.parent.fullscreen_mode:
+            self.screen = pygame.display.set_mode(self.menu.get_size(), pygame.FULLSCREEN)
+        else:
+            self.screen = pygame.display.set_mode(WINDOW_SIZE)
+        self.shortcuts = ShortcutGroup()
+        if os.path.exists('data/levels'):
+            maps_list = sorted(filter(lambda x: x[6].isdigit(), os.listdir('data/levels')), key=lambda x: int(x[6:-4]))
+            for item in maps_list:
+                num = item[6:-4]
+                if item[:6] == 'level_' and num.isdigit() and item[-4:] == '.txt':
+                    self.load_shortcut(f'data/levels/{item}')
+        self.run = True
+        self.main_loop()
+
+    def main_loop(self):
+        while self.run:
+            self.check_controls()
+            self.shortcuts.update()
+            self.render()
+
+    def check_controls(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.run = False
+                self.menu.running = False
+                self.menu.parent.run = False
+            elif event.type == pygame.MOUSEMOTION:
+                self.shortcuts.check_mouse_move(self.to_tape_coords(event.pos))
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == pygame.BUTTON_LEFT:
+                    self.menu.parent.level = self.shortcuts.check_click(self.to_tape_coords(event.pos))
+                    if self.menu.parent.level is not None:
+                        self.run = False
+                        self.menu.running = False
+                elif event.button == 4:
+                    self.shortcuts.move_down(50, self.height - self.menu.logo.get_height() - 46)
+                elif event.button == 5:
+                    self.shortcuts.move_down(-50, self.height - self.menu.logo.get_height() - 46)
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self.run = False
+        if pygame.key.get_pressed()[pygame.K_UP]:
+            self.shortcuts.move_down(10, self.height - self.menu.logo.get_height() - 46)
+        elif pygame.key.get_pressed()[pygame.K_DOWN]:
+            self.shortcuts.move_down(-10, self.height - self.menu.logo.get_height() - 46)
+
+    def render(self):
+        self.screen.fill((0, 0, 0))
+        self.screen.blit(self.menu.logo, (self.width // 2 - self.menu.logo.get_width() // 2, 30))
+        canvas_tape = pygame.Surface((752, self.height - self.menu.logo.get_height() - 46))
+        self.shortcuts.draw(canvas_tape)
+        self.screen.blit(canvas_tape, (self.width // 2 - canvas_tape.get_width() // 2,
+                                       self.menu.logo.get_height() + 46))
+        pygame.draw.rect(self.screen, (255, 255, 255), (self.width // 2 - canvas_tape.get_width() // 2 - 1,
+                                                        self.menu.logo.get_height() + 46 - 1,
+                                                        canvas_tape.get_width() + 2, canvas_tape.get_height() + 2), 2)
+        pygame.display.flip()
+
+    def to_tape_coords(self, coords: tuple):
+        return coords[0] - (self.width // 2 - 376), coords[1] - (self.menu.logo.get_height() + 46)
+
+    def load_shortcut(self, filename):
+        image = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
+        _map, enemies = read_map(filename)
+        for i in range(len(_map)):
+            for j in range(len(_map[i])):
+                if _map[i][j] == 1:
+                    image.blit(self.menu.parent.brick_wall_texture, (j * CELL_SIZE, i * CELL_SIZE))
+                elif _map[i][j] == 2:
+                    image.blit(self.menu.parent.concrete_wall_texture, (j * CELL_SIZE, i * CELL_SIZE))
+                elif _map[i][j] == 3:
+                    image.blit(self.menu.parent.water_texture, (j * CELL_SIZE, i * CELL_SIZE))
+                elif _map[i][j] == 4:
+                    image.blit(self.menu.parent.ice_texture, (j * CELL_SIZE, i * CELL_SIZE))
+                elif _map[i][j] == 5:
+                    image.blit(self.menu.parent.grass_texture, (j * CELL_SIZE, i * CELL_SIZE))
+        Shortcut(pygame.transform.scale(image, (240, 240)), filename, self.shortcuts)
+
+
+class Shortcut(pygame.sprite.Sprite):
+    def __init__(self, image: pygame.SurfaceType, level, *groups):
+        super().__init__(*groups)
+        self.image = image
+        self.rect = pygame.Rect(self.image.get_rect())
+        self.shift = 0
+        self.rect.x += ((len(self.groups()[0]) - 1) % 3) * (self.rect.width + self.rect.width // 15)
+        self.rect.y += ((len(self.groups()[0]) - 1) // 3) * (self.rect.width + self.rect.width // 15)
+        pygame.draw.rect(self.image, (255, 255, 255), (0, 0, self.rect.width, self.rect.height), 5)
+        self.level = level
+        self.highlighted = False
+
+    def update(self):
+        if self.highlighted:
+            pygame.draw.rect(self.image, (255, 0, 0), (0, 0, self.rect.width, self.rect.height), 5)
+        else:
+            pygame.draw.rect(self.image, (255, 255, 255), (0, 0, self.rect.width, self.rect.height), 5)
+
+    def check_mouse_move(self, point: tuple):
+        self.highlighted = self.rect.collidepoint(point) and 0 <= point[1]
+
+    def check_click(self, point: tuple):
+        return self.rect.collidepoint(point)
+
+
+class ShortcutGroup(pygame.sprite.Group):
+    def __init__(self, *sprites: Shortcut):
+        super().__init__(*sprites)
+
+    def check_mouse_move(self, point: tuple):
+        for sprite in self.sprites():
+            sprite.check_mouse_move(point)
+
+    def check_click(self, point: tuple):
+        chosen_level = None
+        for sprite in self.sprites():
+            if sprite.check_click(point):
+                sprite.highlighted = True
+                chosen_level = sprite.level
+            else:
+                sprite.highlighted = False
+        return chosen_level
+
+    def move_down(self, step: int, bottom_edge: int):
+        rect = self.sprites()[0].rect.move(0, step)
+        if rect.top > 0:
+            step = -self.sprites()[0].rect.top
+        else:
+            rect = self.sprites()[-1].rect.move(0, step)
+            if rect.bottom < bottom_edge:
+                step = bottom_edge - rect.bottom
+        for sprite in self.sprites():
+            sprite.rect.y += step
+
+
 class Constructor:
     def __init__(self, menu):
         self.menu = menu
