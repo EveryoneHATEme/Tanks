@@ -50,7 +50,7 @@ class Game:
         self.water_texture = load_image('water_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
         self.ice_texture = load_image('ice_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
         self.grass_texture = load_image('grass_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
-        self.level = 1
+        self.level = ''
         self.player_tier = 1
         self.player_lives = 3
         Menu(self)
@@ -104,9 +104,12 @@ class Game:
             self.screen = pygame.display.set_mode(WINDOW_SIZE)
             if self.fullscreen_mode:
                 pygame.display.set_mode(self.get_resolution(), pygame.FULLSCREEN)
-            self.music_pause = pygame.mixer.Sound('data/music/pause.ogg')
-            self.music_stop = pygame.mixer.Sound('data/music/stop.ogg')
-            self.music_stop.set_volume(0.05)
+            if SOUND_ON:
+                self.music_pause = pygame.mixer.Sound('data/music/pause.ogg')
+                self.music_stop = pygame.mixer.Sound('data/music/stop.ogg')
+                self.music_stop.set_volume(0.05)
+            if isinstance(self.level, str):
+                self.level = int(self.level.split('_')[1].split('.')[0])
             self.init_level(f'data/levels/level_{self.level}.txt')
             self.time = time.time()
             self.clock = pygame.time.Clock()
@@ -117,8 +120,6 @@ class Game:
         if self.run:
             if SOUND_ON:
                 self.music_stop.play()
-        for i in range(15):
-            self.create_bonus()
         while self.run:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -861,7 +862,7 @@ class Player(Tank):
             self.shoot()
 
     def respawn(self):
-        self.__init__(CELL_SIZE * 8, CELL_SIZE * 24, game, 1, 3, game.players)
+        self.__init__(CELL_SIZE * 8, CELL_SIZE * 24, game, game.players)
 
 
 class Block(pygame.sprite.Sprite):
@@ -990,13 +991,9 @@ class Bullet(pygame.sprite.Sprite):
                 return
             collided = get_collided_by_mask(self, game.blocks)
             if collided:
-                terminate = False
                 for sprite in collided:
-                    if not isinstance(sprite, WaterWall):
-                        sprite.is_under_fire(self)
-                        terminate = True
-                if terminate:
-                    self.terminate()
+                    sprite.is_under_fire(self)
+                self.terminate()
         elif isinstance(self.owner, Enemy):
             collided = get_collided_by_mask(self, game.players)
             if collided:
@@ -1005,21 +1002,14 @@ class Bullet(pygame.sprite.Sprite):
                 return
             collided = get_collided_by_mask(self, game.blocks)
             if collided:
-                terminate = False
                 for sprite in collided:
-                    if not isinstance(sprite, WaterWall):
-                        sprite.is_under_fire(self)
-                        terminate = True
-                if terminate:
-                    self.terminate()
+                    sprite.is_under_fire(self)
+                self.terminate()
         if get_collided_by_mask(self, game.flag_group):
             if SOUND_ON:
                 pygame.mixer.Sound('data/music/base_explosion.ogg').play()
             self.terminate()
             game.game_over = True
-            self.level = 1
-            self.player_tier = 1
-            self.player_lives = 3
             game.save_config()
         collided = get_collided_by_mask(self, game.bullets)
         if collided:
@@ -1144,9 +1134,6 @@ class Menu:
         self.logo = load_image('logo', color_key=(0, 0, 0))
         self.copyright = load_image('copyright', color_key=(0, 0, 0))
         self.running = True
-        self.show_levels = False
-        self.shortcuts = []
-        self.shift = 0
         self.main_loop()
 
     def main_loop(self):
@@ -1157,53 +1144,22 @@ class Menu:
     def render(self):
         self.screen.fill((0, 0, 0))
         self.screen.blit(self.logo, (self.width // 2 - self.logo.get_width() // 2, 30))
-        if self.show_levels:
-            coords = cycle([0, 256, 512])
-            count = 0
-            sub_window = pygame.Surface((752, 489))
-            for shortcut in self.shortcuts:
-                rect = pygame.Rect(next(coords), 256 * (count // 3) + self.shift, 240, 240)
-                sub_window.blit(shortcut, rect.topleft)
-                pygame.draw.rect(sub_window, (255, 255, 255), rect, 5)
-                count += 1
-            self.screen.blit(sub_window, (WINDOW_SIZE[0] // 2 - (240 * 3 + 16 * 2) // 2, 56 + self.logo.get_height()))
-            pygame.draw.rect(self.screen, (255, 255, 255), (WINDOW_SIZE[0] // 2 - (240 * 3 + 16 * 2) // 2 - 1,
-                                                            56 + self.logo.get_height() - 1, 752 + 1, 489 + 1), 1)
-        else:
-            self.screen.blit(self.copyright, (self.width // 2 - self.copyright.get_width() // 2,
-                                              self.height - self.copyright.get_height() - 20))
-            # Рендерим кнопки
-            for n, (key, value) in enumerate(self.buttons.items()):
-                text_x = self.width // 2 - 77
-                text_y = self.height // 2 - 100 + n * 50
-                button = value['font'].render(key, 1, (255, 255, 255))
-                if value['selected']:
-                    default_width, default_height = button.get_width(), button.get_height()
-                    button = pygame.font.SysFont(None, 50).render(key, 1, (255, 255, 255))
-                    text_x = self.width // 2 - 77 - (button.get_width() - default_width) // 2
-                    text_y = self.height // 2 - 100 + n * 50 - (button.get_height() - default_height) // 2
-                self.buttons[key]['pos'] = (text_x, text_y, text_x + button.get_width(), text_y + button.get_height())
-                self.screen.blit(button, (text_x, text_y))
-            # ^ Конец рендера кнопок
+        self.screen.blit(self.copyright, (self.width // 2 - self.copyright.get_width() // 2,
+                                          self.height - self.copyright.get_height() - 20))
+        # Рендерим кнопки
+        for n, (key, value) in enumerate(self.buttons.items()):
+            text_x = self.width // 2 - 77
+            text_y = self.height // 2 - 100 + n * 50
+            button = value['font'].render(key, 1, (255, 255, 255))
+            if value['selected']:
+                default_width, default_height = button.get_width(), button.get_height()
+                button = pygame.font.SysFont(None, 50).render(key, 1, (255, 255, 255))
+                text_x = self.width // 2 - 77 - (button.get_width() - default_width) // 2
+                text_y = self.height // 2 - 100 + n * 50 - (button.get_height() - default_height) // 2
+            self.buttons[key]['pos'] = (text_x, text_y, text_x + button.get_width(), text_y + button.get_height())
+            self.screen.blit(button, (text_x, text_y))
+        # ^ Конец рендера кнопок
         pygame.display.flip()
-
-    def create_shortcut(self, filename):
-        shortcut = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
-        _map, enemies = read_map(filename)
-        for i in range(len(_map)):
-            for j in range(len(_map[i])):
-                if _map[i][j] == 1:
-                    shortcut.blit(self.parent.brick_wall_texture, (j * CELL_SIZE, i * CELL_SIZE))
-                elif _map[i][j] == 2:
-                    shortcut.blit(self.parent.concrete_wall_texture, (j * CELL_SIZE, i * CELL_SIZE))
-                elif _map[i][j] == 3:
-                    shortcut.blit(self.parent.water_texture, (j * CELL_SIZE, i * CELL_SIZE))
-                elif _map[i][j] == 4:
-                    shortcut.blit(self.parent.ice_texture, (j * CELL_SIZE, i * CELL_SIZE))
-                elif _map[i][j] == 5:
-                    shortcut.blit(self.parent.grass_texture, (j * CELL_SIZE, i * CELL_SIZE))
-        shortcut = pygame.transform.scale(shortcut, (240, 240))
-        return shortcut
 
     def check_events(self):
         global EXIT_TO_MENU
@@ -1222,58 +1178,34 @@ class Menu:
                         self.width, self.height = self.get_resolution()
                         pygame.display.set_mode(self.get_size(), pygame.FULLSCREEN)
                     self.parent.fullscreen_mode = not self.parent.fullscreen_mode
-                if event.key == pygame.K_ESCAPE:
-                    self.show_levels = False
             elif event.type == pygame.MOUSEMOTION:
-                if not self.show_levels:
-                    mouse_x, mouse_y = event.pos
-                    # Проверка на наведение мышки на кнопку
-                    for key, value in self.buttons.items():
-                        button_x, button_y, button_width, button_height = value['pos']
-                        if mouse_x in range(button_x, button_width + 1) and\
-                                mouse_y in range(button_y, button_height + 1):
-                            self.buttons[key]['selected'] = True
-                        else:
-                            self.buttons[key]['selected'] = False
-            elif event.type == pygame.MOUSEBUTTONUP and event.button not in (4, 5):
-                if self.show_levels:
-                    coords = cycle([0, 256, 512])
-                    for shortcut in range(len(self.shortcuts)):
-                        rect = pygame.Rect(next(coords) + WINDOW_SIZE[0] // 2 - (240 * 3 + 16 * 2) // 2, 256 * \
-                                           (shortcut // 3) + self.shift + 56 + self.logo.get_height(), 240, 240)
-                        if rect.collidepoint(*event.pos):
-                            self.parent.level = shortcut + 1
+                mouse_x, mouse_y = event.pos
+                # Проверка на наведение мышки на кнопку
+                for key, value in self.buttons.items():
+                    button_x, button_y, button_width, button_height = value['pos']
+                    if mouse_x in range(button_x, button_width + 1) and\
+                            mouse_y in range(button_y, button_height + 1):
+                        self.buttons[key]['selected'] = True
+                    else:
+                        self.buttons[key]['selected'] = False
+            elif event.type == pygame.MOUSEBUTTONUP:
+                for k, v in self.buttons.items():
+                    if v['selected']:
+                        if k == 'Новая игра':
+                            LevelMenu(self)
+                            break
+                        elif k == 'Продолжить':
                             self.running = False
                             self.parent.run = True
+                            self.parent.load_config()
                             break
-                else:
-                    for k, v in self.buttons.items():
-                        if v['selected']:
-                            if k == 'Новая игра':
-                                self.show_levels = True
-                                if os.path.exists('data/levels'):
-                                    for item in os.listdir('data/levels'):
-                                        num = item[6:-4]
-                                        if item[:6] == 'level_' and num.isdigit() and item[-4:] == '.txt':
-                                            self.shortcuts.append(self.create_shortcut(f'data/levels/{item}'))
-                                break
-                            elif k == 'Продолжить':
-                                self.running = False
-                                self.parent.run = True
-                                self.parent.load_config()
-                                break
-                            elif k == 'Конструктор':
-                                Constructor(self)
-                                break
-                            elif k == 'Выход':
-                                self.running = False
-                                self.parent.run = False
-                                break
-            elif event.type == pygame.MOUSEBUTTONDOWN and self.show_levels:
-                if event.button == 4:
-                    self.shift += 100
-                elif event.button == 5 and self.shift < 0:
-                    self.shift -= 100
+                        elif k == 'Конструктор':
+                            Constructor(self)
+                            break
+                        elif k == 'Выход':
+                            self.running = False
+                            self.parent.run = False
+                            break
 
     def get_size(self):
         return self.width, self.height
@@ -1282,8 +1214,146 @@ class Menu:
         return ctypes.windll.user32.GetSystemMetrics(0), ctypes.windll.user32.GetSystemMetrics(1)
 
 
+class LevelMenu:
+    def __init__(self, menu: Menu):
+        self.menu = menu
+        self.width, self.height = WINDOW_SIZE
+        pygame.font.init()
+        if self.menu.parent.fullscreen_mode:
+            self.screen = pygame.display.set_mode(self.menu.get_size(), pygame.FULLSCREEN)
+        else:
+            self.screen = pygame.display.set_mode(WINDOW_SIZE)
+        self.shortcuts = ShortcutGroup()
+        if os.path.exists('data/levels'):
+            maps_list = sorted(filter(lambda x: x[6].isdigit(), os.listdir('data/levels')), key=lambda x: int(x[6:-4]))
+            for item in maps_list:
+                num = item[6:-4]
+                if item[:6] == 'level_' and num.isdigit() and item[-4:] == '.txt':
+                    self.load_shortcut(f'data/levels/{item}')
+        self.run = True
+        self.main_loop()
+
+    def main_loop(self):
+        while self.run:
+            self.check_controls()
+            self.shortcuts.update()
+            self.render()
+
+    def check_controls(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.run = False
+                self.menu.running = False
+                self.menu.parent.run = False
+            elif event.type == pygame.MOUSEMOTION:
+                self.shortcuts.check_mouse_move(self.to_tape_coords(event.pos))
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == pygame.BUTTON_LEFT:
+                    self.menu.parent.level = self.shortcuts.check_click(self.to_tape_coords(event.pos))
+                    if self.menu.parent.level is not None:
+                        self.run = False
+                        self.menu.running = False
+                elif event.button == 4:
+                    self.shortcuts.move_down(50, self.height - self.menu.logo.get_height() - 46)
+                elif event.button == 5:
+                    self.shortcuts.move_down(-50, self.height - self.menu.logo.get_height() - 46)
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self.run = False
+        if pygame.key.get_pressed()[pygame.K_UP]:
+            self.shortcuts.move_down(10, self.height - self.menu.logo.get_height() - 46)
+        elif pygame.key.get_pressed()[pygame.K_DOWN]:
+            self.shortcuts.move_down(-10, self.height - self.menu.logo.get_height() - 46)
+
+    def render(self):
+        self.screen.fill((0, 0, 0))
+        self.screen.blit(self.menu.logo, (self.width // 2 - self.menu.logo.get_width() // 2, 30))
+        canvas_tape = pygame.Surface((752, self.height - self.menu.logo.get_height() - 46))
+        self.shortcuts.draw(canvas_tape)
+        self.screen.blit(canvas_tape, (self.width // 2 - canvas_tape.get_width() // 2,
+                                       self.menu.logo.get_height() + 46))
+        pygame.draw.rect(self.screen, (255, 255, 255), (self.width // 2 - canvas_tape.get_width() // 2 - 1,
+                                                        self.menu.logo.get_height() + 46 - 1,
+                                                        canvas_tape.get_width() + 2, canvas_tape.get_height() + 2), 2)
+        pygame.display.flip()
+
+    def to_tape_coords(self, coords: tuple):
+        return coords[0] - (self.width // 2 - 376), coords[1] - (self.menu.logo.get_height() + 46)
+
+    def load_shortcut(self, filename):
+        image = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
+        _map, enemies = read_map(filename)
+        for i in range(len(_map)):
+            for j in range(len(_map[i])):
+                if _map[i][j] == 1:
+                    image.blit(self.menu.parent.brick_wall_texture, (j * CELL_SIZE, i * CELL_SIZE))
+                elif _map[i][j] == 2:
+                    image.blit(self.menu.parent.concrete_wall_texture, (j * CELL_SIZE, i * CELL_SIZE))
+                elif _map[i][j] == 3:
+                    image.blit(self.menu.parent.water_texture, (j * CELL_SIZE, i * CELL_SIZE))
+                elif _map[i][j] == 4:
+                    image.blit(self.menu.parent.ice_texture, (j * CELL_SIZE, i * CELL_SIZE))
+                elif _map[i][j] == 5:
+                    image.blit(self.menu.parent.grass_texture, (j * CELL_SIZE, i * CELL_SIZE))
+        Shortcut(pygame.transform.scale(image, (240, 240)), filename, self.shortcuts)
+
+
+class Shortcut(pygame.sprite.Sprite):
+    def __init__(self, image: pygame.SurfaceType, level, *groups):
+        super().__init__(*groups)
+        self.image = image
+        self.rect = pygame.Rect(self.image.get_rect())
+        self.shift = 0
+        self.rect.x += ((len(self.groups()[0]) - 1) % 3) * (self.rect.width + self.rect.width // 15)
+        self.rect.y += ((len(self.groups()[0]) - 1) // 3) * (self.rect.width + self.rect.width // 15)
+        pygame.draw.rect(self.image, (255, 255, 255), (0, 0, self.rect.width, self.rect.height), 5)
+        self.level = level
+        self.highlighted = False
+
+    def update(self):
+        if self.highlighted:
+            pygame.draw.rect(self.image, (255, 0, 0), (0, 0, self.rect.width, self.rect.height), 5)
+        else:
+            pygame.draw.rect(self.image, (255, 255, 255), (0, 0, self.rect.width, self.rect.height), 5)
+
+    def check_mouse_move(self, point: tuple):
+        self.highlighted = self.rect.collidepoint(point) and 0 <= point[1]
+
+    def check_click(self, point: tuple):
+        return self.rect.collidepoint(point)
+
+
+class ShortcutGroup(pygame.sprite.Group):
+    def __init__(self, *sprites: Shortcut):
+        super().__init__(*sprites)
+
+    def check_mouse_move(self, point: tuple):
+        for sprite in self.sprites():
+            sprite.check_mouse_move(point)
+
+    def check_click(self, point: tuple):
+        chosen_level = None
+        for sprite in self.sprites():
+            if sprite.check_click(point):
+                sprite.highlighted = True
+                chosen_level = sprite.level
+            else:
+                sprite.highlighted = False
+        return chosen_level
+
+    def move_down(self, step: int, bottom_edge: int):
+        rect = self.sprites()[0].rect.move(0, step)
+        if rect.top > 0:
+            step = -self.sprites()[0].rect.top
+        else:
+            rect = self.sprites()[-1].rect.move(0, step)
+            if rect.bottom < bottom_edge:
+                step = bottom_edge - rect.bottom
+        for sprite in self.sprites():
+            sprite.rect.y += step
+
+
 class Constructor:
-    def __init__(self, menu):
+    def __init__(self, menu: Menu):
         self.menu = menu
         self.width, self.height = WINDOW_SIZE
         pygame.font.init()
