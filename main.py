@@ -11,7 +11,7 @@ CELL_SIZE = PLAYGROUND_WIDTH // 26
 UP, DOWN, LEFT, RIGHT, SHOOT = pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame.K_RIGHT, pygame.K_SPACE
 BUTTONS = {UP, DOWN, LEFT, RIGHT, SHOOT}
 EXIT_TO_MENU = True
-SOUND_ON = True
+SOUND_ON = False
 FPS = 30
 
 
@@ -34,16 +34,23 @@ def load_image(name, size=None, color_key=None):
 
 class Game:
     def __init__(self):
-        self.music_lose = pygame.mixer.Sound('data/music/game_over.ogg')
+        if SOUND_ON:
+            self.music_lose = pygame.mixer.Sound('data/music/game_over.ogg')
         self.game_over_flag = 0
         self.run = True
         self.game_over = False
         self.fullscreen_mode = False
+        self.player_texture = load_image('tier2_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.simple_enemy_texture = load_image('enemy_tier1_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.quick_enemy_texture = load_image('enemy_tier2_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.quickfire_enemy_texture = load_image('enemy_tier3_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.strong_enemy_texture = load_image('enemy_tier4_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), (0, 0, 0))
-        self.level = 1
+        self.brick_wall_texture = load_image('brick_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
+        self.concrete_wall_texture = load_image('strong_brick_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
+        self.water_texture = load_image('water_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
+        self.ice_texture = load_image('ice_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
+        self.grass_texture = load_image('grass_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
+        self.level = ''
         Menu(self)
         if self.run:
             self.game_over = False
@@ -95,17 +102,20 @@ class Game:
             self.screen = pygame.display.set_mode(WINDOW_SIZE)
             if self.fullscreen_mode:
                 pygame.display.set_mode(self.get_resolution(), pygame.FULLSCREEN)
+            if isinstance(self.level, str):
+                self.level = int(self.level.split('_')[1].split('.')[0])
             self.init_level(f'data/levels/level_{self.level}.txt')
             self.time = time.time()
             self.clock = pygame.time.Clock()
             self.bonus_time = time.time()
 
     def main_loop(self):
-        self.music_pause = pygame.mixer.Sound('data/music/pause.ogg')
-        self.music_stop = pygame.mixer.Sound('data/music/stop.ogg')
-        self.music_stop.set_volume(0.05)
-        self.music_stop.play()
         global EXIT_TO_MENU
+        if SOUND_ON:
+            self.music_pause = pygame.mixer.Sound('data/music/pause.ogg')
+            self.music_stop = pygame.mixer.Sound('data/music/stop.ogg')
+            self.music_stop.set_volume(0.05)
+            self.music_stop.play()
         while self.run:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -119,7 +129,8 @@ class Game:
                     self.fullscreen_mode = not self.fullscreen_mode
                 elif event.type == pygame.KEYUP and event.key == pygame.K_ESCAPE:
                     self.pause = not self.pause
-                    self.music_pause.play()
+                    if SOUND_ON:
+                        self.music_pause.play()
                 if not self.pause:
                     for player in self.players.sprites():
                         player.check_controls(event)
@@ -146,7 +157,7 @@ class Game:
                     elif isinstance(tank, Enemy):
                         self.enemies.add(tank)
                     self.spawning_tanks.remove(tank)
-                if time.time() - self.time > (190 - self.level * 4 - (len(self.players) - 1) * 20) // 60 and\
+                if time.time() - self.time > (190 - self.level * 4 - (len(self.players) - 1) * 20) // 60 and \
                         len(self.enemy_list) > 0 and len(self.enemies.sprites()) < 4 or len(self.enemy_list) == 20:
                     self.spawn_enemy()
                     self.time = time.time()
@@ -154,8 +165,7 @@ class Game:
                     self.game_over = True
 
                     self.save_config()
-                if self.game_over == True:
-
+                if self.game_over and SOUND_ON:
                     self.play_game_over_music()
 
                 if len(self.enemy_list) == 0 and len(self.enemies.sprites()) == 0:
@@ -313,6 +323,16 @@ class Game:
         self.screen.blit(label, (rect.left + CELL_SIZE * 7 - label.get_width() // 2,
                                  rect.top + CELL_SIZE * 7 - label.get_height() // 2))
         pygame.draw.rect(self.screen, (0, 0, 0), rect, 2)
+        rect = pygame.Rect(sc_width // 32 + canvas.get_width() + 5,
+                           sc_height // 2 - canvas.get_height() // 2 + canvas.get_height() - CELL_SIZE * 2,
+                           CELL_SIZE * 8, CELL_SIZE * 2)
+        pygame.draw.rect(self.screen, (128, 128, 128), rect)
+        self.screen.blit(self.player_texture, (rect.left + CELL_SIZE - self.player_texture.get_width() // 2,
+                                               rect.top + CELL_SIZE - self.player_texture.get_height() // 2))
+        label = font.render(f'{self.players.sprites()[0].lives}', True, (0, 0, 0))
+        self.screen.blit(label, (rect.left + CELL_SIZE * 7 - label.get_width() // 2,
+                                 rect.top + CELL_SIZE - label.get_height() // 2))
+        pygame.draw.rect(self.screen, (0, 0, 0), rect, 2)
         pygame.display.flip()
 
     def init_level(self, filename):
@@ -359,17 +379,17 @@ class Game:
                     self.grass_blocks.add(GrassWall(j * CELL_SIZE, i * CELL_SIZE))
 
         self.spawning_tanks.add(Player(CELL_SIZE * 8, CELL_SIZE * 24, self, self.players))
-        self.enemy_list = [0 for _ in range(self.enemies_amount[0])] +\
-                          [1 for _ in range(self.enemies_amount[1])] +\
-                          [2 for _ in range(self.enemies_amount[2])] +\
+        self.enemy_list = [0 for _ in range(self.enemies_amount[0])] + \
+                          [1 for _ in range(self.enemies_amount[1])] + \
+                          [2 for _ in range(self.enemies_amount[2])] + \
                           [3 for _ in range(self.enemies_amount[3])]
         shuffle(self.enemy_list)
         del self.enemy_list[20:]
 
     def create_bonus(self):
         num = randint(0, 5)
-        x, y = randint(0, PLAYGROUND_WIDTH - CELL_SIZE * 2),\
-            randint(0, PLAYGROUND_WIDTH - CELL_SIZE * 2)
+        x, y = randint(0, PLAYGROUND_WIDTH - CELL_SIZE * 2), \
+               randint(0, PLAYGROUND_WIDTH - CELL_SIZE * 2)
         if not num:
             self.bonuses.add(BonusStar(x, y))
         elif num == 1:
@@ -969,8 +989,8 @@ class TankExplosion(pygame.sprite.Sprite):
         if SOUND_ON:
             pygame.mixer.Sound('data/music/tank_explosion.ogg').play()
         self.animation = iter(
-                [load_image('tank_explosion_0', (CELL_SIZE * 3, CELL_SIZE * 3), -1) for _ in range(4)] +
-                [load_image('tank_explosion_1', (CELL_SIZE * 3, CELL_SIZE * 3), (0, 10)) for _ in range(4)])
+            [load_image('tank_explosion_0', (CELL_SIZE * 3, CELL_SIZE * 3), -1) for _ in range(4)] +
+            [load_image('tank_explosion_1', (CELL_SIZE * 3, CELL_SIZE * 3), (0, 10)) for _ in range(4)])
         self.image = next(self.animation)
         self.rect = self.image.get_rect()
         self.rect.x = tank.rect.x - CELL_SIZE // 2
@@ -1049,7 +1069,7 @@ class BonusTank(Bonus):
 
 
 class Menu:
-    def __init__(self, parent):
+    def __init__(self, parent: Game):
         self.parent = parent
         self.width, self.height = WINDOW_SIZE
         pygame.font.init()
@@ -1123,9 +1143,7 @@ class Menu:
                 for k, v in self.buttons.items():
                     if v['selected']:
                         if k == 'Новая игра':
-                            self.running = False
-                            self.parent.run = True
-                            self.parent.save_config()
+                            LevelMenu(self)
                             break
                         elif k == 'Продолжить':
                             self.running = False
@@ -1286,7 +1304,7 @@ class ShortcutGroup(pygame.sprite.Group):
 
 
 class Constructor:
-    def __init__(self, menu):
+    def __init__(self, menu: Menu):
         self.menu = menu
         self.width, self.height = WINDOW_SIZE
         pygame.font.init()
@@ -1403,12 +1421,14 @@ class Constructor:
                     res[i][j] = '0'
         res.append(['16 ', '4 ', '0 ', '0'])
         mx = 1
-        for item in os.listdir('data/constructor'):
+        if not os.path.exists('data/levels'):
+            os.mkdir('data/levels')
+        for item in os.listdir('data/levels'):
             num = item[6:-4]
             if item[:6] == 'level_' and num.isdigit() and item[-4:] == '.txt':
                 if int(num) >= mx:
                     mx = int(num) + 1
-        with open(F'data/constructor/level_{str(mx)}.txt', mode='w', encoding='utf-8') as ouf:
+        with open(F'data/levels/level_{str(mx)}.txt', mode='w', encoding='utf-8') as ouf:
             ouf.write('\n'.join([''.join(x) for x in res]))
 
     def change_map(self, block):
