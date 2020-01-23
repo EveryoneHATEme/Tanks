@@ -1248,7 +1248,7 @@ class LevelMenu:
             elif event.type == pygame.MOUSEMOTION:
                 self.shortcuts.check_mouse_move(self.to_tape_coords(event.pos))
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                if event.button == pygame.BUTTON_LEFT:
+                if event.button == 1:
                     self.menu.parent.level = self.shortcuts.check_click(self.to_tape_coords(event.pos))
                     if self.menu.parent.level is not None:
                         self.run = False
