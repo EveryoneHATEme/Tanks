@@ -862,7 +862,7 @@ class Player(Tank):
             self.shoot()
 
     def respawn(self):
-        self.__init__(CELL_SIZE * 8, CELL_SIZE * 24, game, game.players)
+        self.__init__(CELL_SIZE * 8, CELL_SIZE * 24, game, 1, self.lives - 1, game.players)
 
 
 class Block(pygame.sprite.Sprite):
