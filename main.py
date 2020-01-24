@@ -136,8 +136,6 @@ class Game:
                 if event.type == pygame.QUIT:
                     self.run = False
                     EXIT_TO_MENU = False
-                elif self.game_over:
-                    continue
                 elif event.type == pygame.KEYUP and event.key == pygame.K_F11:
                     if self.fullscreen_mode:
                         pygame.display.set_mode(WINDOW_SIZE)
@@ -200,10 +198,16 @@ class Game:
                 if self.level_end_timer is not None and time.time() - self.level_end_timer >= 4:
                     if self.game_over:
                         self.run = False
+                        Player._instances = [None, None]
                     else:
                         if os.path.exists(f'data/levels/level_{self.level}.txt'):
-                            self.init_level(f'data/levels/level_{self.level}.txt', self.players.sprites()[0].tier,
-                                            self.players.sprites()[0].lives)
+                            if TWO_PLAYERS:
+                                self.init_level(f'data/levels/level_{self.level}.txt', self.players.sprites()[0].tier,
+                                                self.players.sprites()[0].lives, self.players.sprites()[1].tier,
+                                                self.players.sprites()[1].lives)
+                            else:
+                                self.init_level(f'data/levels/level_{self.level}.txt', self.players.sprites()[0].tier,
+                                                self.players.sprites()[0].lives)
                         else:
                             self.run = False
             self.render()
@@ -238,11 +242,17 @@ class Game:
             living_players = sorted(self.players.sprites(), key=attrgetter('number'))
             numbers = list(map(attrgetter('number'), self.players.sprites()))
             if 1 in numbers:
-                writer.writerow([1, self.level, living_players[0].tier, living_players[0].lives])
+                if not self.game_over:
+                    writer.writerow([1, self.level, living_players[0].tier, living_players[0].lives])
+                else:
+                    writer.writerow([1, 1, 1, 3])
             else:
                 writer.writerow([1, 1, 1, 3])
             if 2 in numbers:
-                writer.writerow([2, self.level, living_players[1].tier, living_players[1].lives])
+                if not self.game_over:
+                    writer.writerow([2, self.level, living_players[1].tier, living_players[1].lives])
+                else:
+                    writer.writerow([2, 1, 1, 3])
             else:
                 writer.writerow([2, 1, 1, 3])
 
@@ -262,17 +272,18 @@ class Game:
     def render(self):
         canvas = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
         canvas.fill((0, 0, 0))
-        self.blocks.draw(canvas)
-        self.ice_blocks.draw(canvas)
-        self.players.draw(canvas)
-        self.enemies.draw(canvas)
-        self.bullets.draw(canvas)
-        self.grass_blocks.draw(canvas)
-        self.flag_group.draw(canvas)
-        self.shields.draw(canvas)
-        self.spawning_tanks.draw(canvas)
-        self.bonuses.draw(canvas)
-        self.explosions.draw(canvas)
+        if not self.starting_level:
+            self.blocks.draw(canvas)
+            self.ice_blocks.draw(canvas)
+            self.players.draw(canvas)
+            self.enemies.draw(canvas)
+            self.bullets.draw(canvas)
+            self.grass_blocks.draw(canvas)
+            self.flag_group.draw(canvas)
+            self.shields.draw(canvas)
+            self.spawning_tanks.draw(canvas)
+            self.bonuses.draw(canvas)
+            self.explosions.draw(canvas)
         if self.pause:
             self.pause_group.draw(canvas)
         if self.game_over:
@@ -404,10 +415,12 @@ class Game:
         if SOUND_ON:
             pygame.mixer.music.load('data/music/intro.mp3')
             pygame.mixer.music.play()
+        self.level_end_timer = None
         self.loading_screen_1_pos = [0, -PLAYGROUND_WIDTH]
         self.loading_screen_2_pos = [0, PLAYGROUND_WIDTH]
         self.starting_level = True
         self.starting_level_2 = False
+        Player._instances = [None, None]
         _map, self.enemies_amount = read_map(filename)
         self.ice_blocks.empty()
         self.blocks.empty()
