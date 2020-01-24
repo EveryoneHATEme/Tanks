@@ -4,6 +4,8 @@ import os
 import time
 import ctypes
 from itertools import cycle
+import csv
+from operator import attrgetter
 
 WINDOW_SIZE = (900, 700)
 PLAYGROUND_WIDTH = 650
@@ -12,6 +14,7 @@ UP, DOWN, LEFT, RIGHT, SHOOT = pygame.K_UP, pygame.K_DOWN, pygame.K_LEFT, pygame
 BUTTONS = {UP, DOWN, LEFT, RIGHT, SHOOT}
 EXIT_TO_MENU = True
 SOUND_ON = False
+TWO_PLAYERS = False
 FPS = 30
 
 
@@ -34,13 +37,15 @@ def load_image(name, size=None, color_key=None):
 
 class Game:
     def __init__(self):
+        global EXIT_TO_MENU
         if SOUND_ON:
             self.music_lose = pygame.mixer.Sound('data/music/game_over.ogg')
         self.game_over_flag = 0
         self.run = True
         self.game_over = False
         self.fullscreen_mode = False
-        self.player_texture = load_image('tier2_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
+        self.first_player_texture = load_image('tier2_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
+        self.second_player_texture = load_image('tier2_tank_second', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.simple_enemy_texture = load_image('enemy_tier1_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.quick_enemy_texture = load_image('enemy_tier2_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
         self.quickfire_enemy_texture = load_image('enemy_tier3_tank', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
@@ -50,75 +55,89 @@ class Game:
         self.water_texture = load_image('water_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
         self.ice_texture = load_image('ice_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
         self.grass_texture = load_image('grass_wall', (CELL_SIZE, CELL_SIZE), (0, 0, 0))
-        self.level = 1
+        self.level = ''
+        self.first_player_tier = 1
+        self.first_player_lives = 3
+        self.second_player_tier = 1
+        self.second_player_lives = 3
         Menu(self)
-        if self.run:
-            self.game_over = False
-            self.enemy_list = []
-            self.enemies_amount = tuple()
-            self.enemy_positions = cycle([(CELL_SIZE * 12, 0), (CELL_SIZE * 24, 0), (0, 0)])
-            self.enemies = pygame.sprite.Group()
-            self.spawning_tanks = pygame.sprite.Group()
-            self.bullets = pygame.sprite.Group()
-            self.blocks = pygame.sprite.Group()
-            self.players = pygame.sprite.Group()
-            self.ice_blocks = pygame.sprite.Group()
-            self.grass_blocks = pygame.sprite.Group()
-            self.bonuses = pygame.sprite.Group()
-            self.shields = pygame.sprite.Group()
-            self.explosions = pygame.sprite.Group()
-            self.blocks_around_base = list()
-            self.base_protected = False
-            self.base_protection_duration = FPS * 10
-            self.base_protection_count = 0
-            self.game_over_group = pygame.sprite.Group()
-            self.game_over_sprite = pygame.sprite.Sprite(self.game_over_group)
-            self.game_over_sprite.image = load_image('game_over', (100, 50), -1)
-            self.game_over_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - 15, PLAYGROUND_WIDTH, 31, 15)
-            self.loading_screen_1 = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
-            self.loading_screen_1.fill((192, 192, 192))
-            self.loading_screen_1_pos = [0, -PLAYGROUND_WIDTH]
-            self.loading_screen_2 = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
-            self.loading_screen_2.fill((192, 192, 192))
-            self.loading_screen_2_pos = [0, PLAYGROUND_WIDTH]
-            self.starting_level = True
-            self.starting_level_2 = False
-            self.pause = False
-            self.pause_group = pygame.sprite.Group()
-            self.pause_sprite = pygame.sprite.Sprite(self.pause_group)
-            self.pause_sprite.image = load_image('pause', (39 * 2, 7 * 2), (0, 0, 0))
-            self.pause_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - 39, PLAYGROUND_WIDTH // 2 - 7, 39 * 2, 7 * 2)
-            self.flag_group = pygame.sprite.Group()
-            self.flag_sprite = pygame.sprite.Sprite(self.flag_group)
-            self.flag_sprite.image = load_image('flag', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
-            self.flag_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - CELL_SIZE + 5,
-                                                PLAYGROUND_WIDTH - CELL_SIZE * 2 + 5, 39 * 2, 7 * 2)
-            self.flag_sprite.mask = pygame.mask.from_surface(self.flag_sprite.image)
-            self.flag_broken_group = pygame.sprite.Group()
-            self.flag_broken_sprite = pygame.sprite.Sprite(self.flag_broken_group)
-            self.flag_broken_sprite.image = load_image('flag_broken', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
-            self.flag_broken_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - CELL_SIZE + 5,
-                                                       PLAYGROUND_WIDTH - CELL_SIZE * 2 + 5, 39 * 2, 7 * 2)
-            self.screen = pygame.display.set_mode(WINDOW_SIZE)
-            if self.fullscreen_mode:
-                pygame.display.set_mode(self.get_resolution(), pygame.FULLSCREEN)
-            self.init_level(f'data/levels/level_{self.level}.txt')
-            self.time = time.time()
-            self.clock = pygame.time.Clock()
-            self.bonus_time = time.time()
-
-    def main_loop(self):
-        global EXIT_TO_MENU
+        if not self.run:
+            EXIT_TO_MENU = False
+            return
+        self.game_over = False
+        self.enemy_list = []
+        self.enemies_amount = tuple()
+        self.enemy_positions = cycle([(CELL_SIZE * 12, 0), (CELL_SIZE * 24, 0), (0, 0)])
+        self.enemies = pygame.sprite.Group()
+        self.spawning_tanks = pygame.sprite.Group()
+        self.bullets = pygame.sprite.Group()
+        self.blocks = pygame.sprite.Group()
+        self.players = pygame.sprite.Group()
+        self.ice_blocks = pygame.sprite.Group()
+        self.grass_blocks = pygame.sprite.Group()
+        self.bonuses = pygame.sprite.Group()
+        self.shields = pygame.sprite.Group()
+        self.explosions = pygame.sprite.Group()
+        self.blocks_around_base = list()
+        self.base_protected = False
+        self.base_protection_duration = FPS * 10
+        self.base_protection_count = 0
+        self.game_over_group = pygame.sprite.Group()
+        self.game_over_sprite = pygame.sprite.Sprite(self.game_over_group)
+        self.game_over_sprite.image = load_image('game_over', (100, 50), -1)
+        self.game_over_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - 50, PLAYGROUND_WIDTH, 31, 15)
+        self.loading_screen_1 = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
+        self.loading_screen_1.fill((192, 192, 192))
+        self.loading_screen_1_pos = [0, -PLAYGROUND_WIDTH]
+        self.loading_screen_2 = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
+        self.loading_screen_2.fill((192, 192, 192))
+        self.loading_screen_2_pos = [0, PLAYGROUND_WIDTH]
+        self.starting_level = True
+        self.starting_level_2 = False
+        self.pause = False
+        self.pause_group = pygame.sprite.Group()
+        self.pause_sprite = pygame.sprite.Sprite(self.pause_group)
+        self.pause_sprite.image = load_image('pause', (39 * 2, 7 * 2), (0, 0, 0))
+        self.pause_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - 39, PLAYGROUND_WIDTH // 2 - 7, 39 * 2, 7 * 2)
+        self.flag_group = pygame.sprite.Group()
+        self.flag_sprite = pygame.sprite.Sprite(self.flag_group)
+        self.flag_sprite.image = load_image('flag', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
+        self.flag_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - CELL_SIZE + 5,
+                                            PLAYGROUND_WIDTH - CELL_SIZE * 2 + 5, 39 * 2, 7 * 2)
+        self.flag_sprite.mask = pygame.mask.from_surface(self.flag_sprite.image)
+        self.flag_broken_group = pygame.sprite.Group()
+        self.flag_broken_sprite = pygame.sprite.Sprite(self.flag_broken_group)
+        self.flag_broken_sprite.image = load_image('flag_broken', (CELL_SIZE * 2 - 10, CELL_SIZE * 2 - 10), -1)
+        self.flag_broken_sprite.rect = pygame.Rect(PLAYGROUND_WIDTH // 2 - CELL_SIZE + 5,
+                                                   PLAYGROUND_WIDTH - CELL_SIZE * 2 + 5, 39 * 2, 7 * 2)
+        self.screen = pygame.display.set_mode(WINDOW_SIZE)
+        if self.fullscreen_mode:
+            pygame.display.set_mode(self.get_resolution(), pygame.FULLSCREEN)
         if SOUND_ON:
             self.music_pause = pygame.mixer.Sound('data/music/pause.ogg')
             self.music_stop = pygame.mixer.Sound('data/music/stop.ogg')
             self.music_stop.set_volume(0.05)
-            self.music_stop.play()
+        if isinstance(self.level, str):
+            self.level = int(self.level.split('_')[1].split('.')[0])
+        self.init_level(f'data/levels/level_{self.level}.txt', self.first_player_tier,
+                        self.first_player_lives, self.second_player_tier, self.second_player_lives)
+        self.time = time.time()
+        self.clock = pygame.time.Clock()
+        self.bonus_time = time.time()
+        self.level_end_timer = None
+
+    def main_loop(self):
+        global EXIT_TO_MENU
+        if self.run:
+            if SOUND_ON:
+                self.music_stop.play()
         while self.run:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.run = False
                     EXIT_TO_MENU = False
+                elif self.game_over:
+                    continue
                 elif event.type == pygame.KEYUP and event.key == pygame.K_F11:
                     if self.fullscreen_mode:
                         pygame.display.set_mode(WINDOW_SIZE)
@@ -156,22 +175,37 @@ class Game:
                         self.enemies.add(tank)
                     self.spawning_tanks.remove(tank)
                 if time.time() - self.time > (190 - self.level * 4 - (len(self.players) - 1) * 20) // 60 and \
-                        len(self.enemy_list) > 0 and len(self.enemies.sprites()) < 4 or len(self.enemy_list) == 20:
+                        len(self.enemy_list) > 0 and len(self.enemies.sprites()) +\
+                        len(self.spawning_tanks.sprites()) < 4 or len(self.enemy_list) == 20:
                     self.spawn_enemy()
                     self.time = time.time()
                 if len(self.players.sprites()) == 0:
                     self.game_over = True
-
+                    self.level = 1
+                    self.first_player_tier = 1
+                    self.first_player_lives = 3
+                    self.second_player_tier = 1
+                    self.second_player_lives = 3
                     self.save_config()
                 if self.game_over and SOUND_ON:
                     self.play_game_over_music()
-
-                if len(self.enemy_list) == 0 and len(self.enemies.sprites()) == 0:
+                if len(self.enemy_list) == 0 and len(self.enemies.sprites()) == 0 and self.level_end_timer is None:
                     self.level += 1
                     self.save_config()
-                    self.init_level(f'data/levels/level_{self.level}.txt')
+                    self.level_end_timer = time.time()
                 self.enemies_amount = (self.enemy_list.count(0), self.enemy_list.count(1),
                                        self.enemy_list.count(2), self.enemy_list.count(3))
+                if self.game_over and self.level_end_timer is None:
+                    self.level_end_timer = time.time()
+                if self.level_end_timer is not None and time.time() - self.level_end_timer >= 4:
+                    if self.game_over:
+                        self.run = False
+                    else:
+                        if os.path.exists(f'data/levels/level_{self.level}.txt'):
+                            self.init_level(f'data/levels/level_{self.level}.txt', self.players.sprites()[0].tier,
+                                            self.players.sprites()[0].lives)
+                        else:
+                            self.run = False
             self.render()
             self.clock.tick(FPS)
 
@@ -182,27 +216,35 @@ class Game:
             self.game_over_flag = 1
 
     def load_config(self):
-        with open('config.txt', mode='r', encoding='utf-8') as inf:
-            text = inf.readlines()
-            for line in text:
-                key, value = line.split(':')
-                key, value = key.strip(), value.strip()
-                if key == 'level':
-                    self.level = int(value)
+        with open('config.csv', encoding='utf-8') as config_file:
+            content = csv.reader(config_file, delimiter=',')
+            header = next(content)
+            content = list(content)
+            first_player_level = int(content[0][1])
+            second_player_level = int(content[1][1])
+            self.level = max(first_player_level, second_player_level)
+            self.first_player_tier = int(content[0][2])
+            self.first_player_lives = int(content[0][3])
+            self.second_player_tier = int(content[1][2])
+            self.second_player_lives = int(content[1][3])
 
     def save_config(self):
-        with open('config.txt', mode='r', encoding='utf-8') as inf:
-            new_config = []
-            text = inf.readlines()
-            for line in text:
-                key, value = line.split(':')
-                key, value = key.strip(), value.strip()
-                if key == 'level':
-                    new_config.append(F'{key}: {self.level}')
-                else:
-                    new_config.append(F'{key}: {value}')
-        with open('config.txt', mode='w', encoding='utf-8') as outf:
-            outf.write('\n'.join(new_config))
+        with open('config.csv', encoding='utf-8') as config_file:
+            content = csv.reader(config_file, delimiter=',')
+            header = next(content)
+        with open('config.csv', 'w', newline='') as config_file:
+            writer = csv.writer(config_file, delimiter=',')
+            writer.writerow(header)
+            living_players = sorted(self.players.sprites(), key=attrgetter('number'))
+            numbers = list(map(attrgetter('number'), self.players.sprites()))
+            if 1 in numbers:
+                writer.writerow([1, self.level, living_players[0].tier, living_players[0].lives])
+            else:
+                writer.writerow([1, 1, 1, 3])
+            if 2 in numbers:
+                writer.writerow([2, self.level, living_players[1].tier, living_players[1].lives])
+            else:
+                writer.writerow([2, 1, 1, 3])
 
     def spawn_enemy(self):
         coords = next(self.enemy_positions)
@@ -237,9 +279,8 @@ class Game:
             self.flag_group.empty()
             self.flag_broken_group.draw(canvas)
             self.game_over_group.draw(canvas)
-            self.game_over_sprite.rect.y -= 5
-            if self.game_over_sprite.rect.y <= -30:
-                self.run = False
+            if self.game_over_sprite.rect.centery > WINDOW_SIZE[1] // 2:
+                self.game_over_sprite.rect.centery -= 5
         self.screen.fill((192, 192, 192))
         if self.starting_level:
             canvas.blit(self.loading_screen_1, self.loading_screen_1_pos)
@@ -325,15 +366,37 @@ class Game:
                            sc_height // 2 - canvas.get_height() // 2 + canvas.get_height() - CELL_SIZE * 2,
                            CELL_SIZE * 8, CELL_SIZE * 2)
         pygame.draw.rect(self.screen, (128, 128, 128), rect)
-        self.screen.blit(self.player_texture, (rect.left + CELL_SIZE - self.player_texture.get_width() // 2,
-                                               rect.top + CELL_SIZE - self.player_texture.get_height() // 2))
-        label = font.render(f'{self.players.sprites()[0].lives}', True, (0, 0, 0))
+        self.screen.blit(self.first_player_texture,
+                         (rect.left + CELL_SIZE - self.first_player_texture.get_width() // 2,
+                          rect.top + CELL_SIZE - self.first_player_texture.get_height() // 2))
+        if self.players.sprites() and self.players.sprites()[0].number == 0:
+            lives = self.players.sprites()[0].lives
+        else:
+            lives = 0
+        label = font.render(f'{lives}', True, (0, 0, 0))
         self.screen.blit(label, (rect.left + CELL_SIZE * 7 - label.get_width() // 2,
                                  rect.top + CELL_SIZE - label.get_height() // 2))
         pygame.draw.rect(self.screen, (0, 0, 0), rect, 2)
+        if TWO_PLAYERS:
+            rect = rect.move(0, -(rect.height + 5))
+            pygame.draw.rect(self.screen, (128, 128, 128), rect)
+            self.screen.blit(self.second_player_texture,
+                             (rect.left + CELL_SIZE - self.first_player_texture.get_width() // 2,
+                              rect.top + CELL_SIZE - self.first_player_texture.get_height() // 2))
+            if len(self.players.sprites()) == 2:
+                lives = self.players.sprites()[1].lives
+            elif len(self.players.sprites()) == 1 and self.players.sprites()[0].number == 1:
+                lives = self.players.sprites()[0].lives
+            else:
+                lives = 0
+            label = font.render(f'{lives}', True, (0, 0, 0))
+            self.screen.blit(label, (rect.left + CELL_SIZE * 7 - label.get_width() // 2,
+                                     rect.top + CELL_SIZE - label.get_height() // 2))
+            pygame.draw.rect(self.screen, (0, 0, 0), rect, 2)
         pygame.display.flip()
 
-    def init_level(self, filename):
+    def init_level(self, filename, first_player_tier=1, first_player_lives=3,
+                   second_player_tier=1, second_player_lives=3):
         """
         Пробегаемся по массиву, полученному из файла с картой
         инициализируем и добавляем в список стены
@@ -375,8 +438,11 @@ class Game:
                     self.ice_blocks.add(IceWall(j * CELL_SIZE, i * CELL_SIZE))
                 elif _map[i][j] == 5:
                     self.grass_blocks.add(GrassWall(j * CELL_SIZE, i * CELL_SIZE))
-
-        self.spawning_tanks.add(Player(CELL_SIZE * 8, CELL_SIZE * 24, self, self.players))
+        self.spawning_tanks.add(Player(CELL_SIZE * 9, CELL_SIZE * 24, self,
+                                       first_player_tier, first_player_lives, self.players))
+        if TWO_PLAYERS:
+            self.spawning_tanks.add(Player(CELL_SIZE * 16, CELL_SIZE * 24, self,
+                                           second_player_tier, second_player_lives, self.players))
         self.enemy_list = [0 for _ in range(self.enemies_amount[0])] + \
                           [1 for _ in range(self.enemies_amount[1])] + \
                           [2 for _ in range(self.enemies_amount[2])] + \
@@ -491,16 +557,27 @@ class Tank(pygame.sprite.Sprite):
         if self.durability <= 0:
             self.terminate()
             return
-
-        self.rect.y += self.vel_y
-        collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
-        if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
-            self.rect.y -= self.vel_y
-        self.rect.x += self.vel_x
+        if len(get_collided_by_rect(self, game.players, game.enemies)) > 1:
+            self.rect.y += self.vel_y
+            collides = get_collided_by_rect(self, game.blocks)
+            if len(collides) or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
+                self.rect.y -= self.vel_y
+        else:
+            self.rect.y += self.vel_y
+            collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
+            if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
+                self.rect.y -= self.vel_y
+        if len(get_collided_by_rect(self, game.players, game.enemies)) > 1:
+            self.rect.x += self.vel_x
+            collides = get_collided_by_rect(self, game.blocks)
+            if len(collides) or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
+                self.rect.x -= self.vel_x
+        else:
+            self.rect.x += self.vel_x
+            collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
+            if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
+                self.rect.x -= self.vel_x
         self.stay = False
-        collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
-        if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
-            self.rect.x -= self.vel_x
         if self.vel_x > 0:
             self.facing = RIGHT
             self.angle = 270
@@ -553,28 +630,48 @@ class Tank(pygame.sprite.Sprite):
             elif isinstance(bonus, BonusStar):
                 if self.tier in range(1, 4):
                     self.tier += 1
-                    if self.tier == 2:
-                        self.bullet_speed *= 2
-                        self.animation = cycle((load_image('tier2_tank', (self.cell_size, self.cell_size), -1),
-                                                load_image('tier2_tank_2', (self.cell_size, self.cell_size), -1)))
-                    elif self.tier == 3:
-                        self.bullet_limit = 2
-                        self.animation = cycle((load_image('tier3_tank', (self.cell_size, self.cell_size), -1),
-                                                load_image('tier3_tank_2', (self.cell_size, self.cell_size), -1)))
-                    elif self.tier == 4:
-                        self.durability = 2
-                        self.animation = cycle((load_image('tier4_tank', (self.cell_size, self.cell_size), -1),
-                                                load_image('tier4_tank_2', (self.cell_size, self.cell_size), -1)))
+                    self.change_tier()
             game.bonuses.remove(bonus)
             bonus.terminate()
+
+    def change_tier(self):
+        if self.tier == 2:
+            self.bullet_speed = 480
+            if self.number:
+                self.animation = cycle((load_image('tier2_tank_second', (self.cell_size, self.cell_size), -1),
+                                        load_image('tier2_tank_second_2', (self.cell_size, self.cell_size), -1)))
+            else:
+                self.animation = cycle((load_image('tier2_tank', (self.cell_size, self.cell_size), -1),
+                                        load_image('tier2_tank_2', (self.cell_size, self.cell_size), -1)))
+        elif self.tier == 3:
+            self.bullet_speed = 480
+            self.bullet_limit = 2
+            if self.number:
+                self.animation = cycle((load_image('tier2_tank_second', (self.cell_size, self.cell_size), -1),
+                                        load_image('tier2_tank_second_2', (self.cell_size, self.cell_size), -1)))
+            else:
+                self.animation = cycle((load_image('tier3_tank', (self.cell_size, self.cell_size), -1),
+                                        load_image('tier3_tank_2', (self.cell_size, self.cell_size), -1)))
+        elif self.tier == 4:
+            self.bullet_speed = 480
+            self.bullet_limit = 2
+            self.durability = 2
+            if self.number:
+                self.animation = cycle((load_image('tier4_tank_second', (self.cell_size, self.cell_size), -1),
+                                        load_image('tier4_tank_second_2', (self.cell_size, self.cell_size), -1)))
+            else:
+                self.animation = cycle((load_image('tier4_tank', (self.cell_size, self.cell_size), -1),
+                                        load_image('tier4_tank_2', (self.cell_size, self.cell_size), -1)))
 
     def make_immortal(self, duration):
         self.immortal = True
         self.immortal_duration = duration
+        self.immortal_count = 0
 
     def make_frozen(self, duration):
         self.frozen = True
         self.freeze_duration = duration
+        self.freeze_count = 0
 
     def shoot(self):
         if not self.frozen and self.spawn_animation is None:
@@ -643,16 +740,31 @@ class Enemy(Tank):
             self.terminate()
             return
         if not self.frozen:
-            self.rect.y += self.vel_y
-            collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
-            if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
-                self.rect.y -= self.vel_y
-                self.choose_new_direction()
-            self.rect.x += self.vel_x
-            collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
-            if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
-                self.rect.x -= self.vel_x
-                self.choose_new_direction()
+            if len(get_collided_by_rect(self, game.players, game.enemies)) > 1:
+                self.rect.y += self.vel_y
+                collides = get_collided_by_rect(self, game.blocks)
+                if len(collides) or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
+                    self.rect.y -= self.vel_y
+                    self.choose_new_direction(True)
+            else:
+                self.rect.y += self.vel_y
+                collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
+                if len(collides) > 1 or not (0 <= self.rect.top and self.rect.bottom <= PLAYGROUND_WIDTH):
+                    self.rect.y -= self.vel_y
+                    self.choose_new_direction()
+
+            if len(get_collided_by_rect(self, game.players, game.enemies)) > 1:
+                self.rect.x += self.vel_x
+                collides = get_collided_by_rect(self, game.blocks)
+                if len(collides) or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
+                    self.rect.x -= self.vel_x
+                    self.choose_new_direction(True)
+            else:
+                self.rect.x += self.vel_x
+                collides = get_collided_by_rect(self, game.players, game.blocks, game.enemies)
+                if len(collides) > 1 or not (0 <= self.rect.left and self.rect.right <= PLAYGROUND_WIDTH):
+                    self.rect.x -= self.vel_x
+                    self.choose_new_direction()
         else:
             self.stay = True
             if self.freeze_count >= self.freeze_duration:
@@ -666,7 +778,7 @@ class Enemy(Tank):
             self.image = next(self.animation)
             self.image = pygame.transform.rotate(self.image, self.angle)
 
-    def choose_new_direction(self):
+    def choose_new_direction(self, ignore_players=False):
         directions = [UP, RIGHT, DOWN, LEFT]
 
         inverse_direction = directions[(directions.index(self.facing) + 2) % 4]
@@ -681,7 +793,10 @@ class Enemy(Tank):
             if direction == UP:
                 new_sprite = pygame.sprite.Sprite()
                 new_sprite.rect = self.rect.move(0, -self.cell_size)
-                collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
+                if ignore_players:
+                    collides = get_collided_by_rect(new_sprite, game.blocks)
+                else:
+                    collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
                 if len(collides) == 0 and 0 <= new_sprite.rect.top:
                     new_direction = direction
                     del new_sprite
@@ -689,7 +804,10 @@ class Enemy(Tank):
             elif direction == RIGHT:
                 new_sprite = pygame.sprite.Sprite()
                 new_sprite.rect = self.rect.move(self.cell_size, 0)
-                collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
+                if ignore_players:
+                    collides = get_collided_by_rect(new_sprite, game.blocks)
+                else:
+                    collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
                 if len(collides) == 0 and PLAYGROUND_WIDTH >= new_sprite.rect.right:
                     new_direction = direction
                     del new_sprite
@@ -697,7 +815,10 @@ class Enemy(Tank):
             elif direction == DOWN:
                 new_sprite = pygame.sprite.Sprite()
                 new_sprite.rect = self.rect.move(0, self.cell_size)
-                collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
+                if ignore_players:
+                    collides = get_collided_by_rect(new_sprite, game.blocks)
+                else:
+                    collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
                 if len(collides) == 0 and PLAYGROUND_WIDTH >= new_sprite.rect.bottom:
                     new_direction = direction
                     del new_sprite
@@ -705,7 +826,10 @@ class Enemy(Tank):
             elif direction == LEFT:
                 new_sprite = pygame.sprite.Sprite()
                 new_sprite.rect = self.rect.move(-self.cell_size, 0)
-                collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
+                if ignore_players:
+                    collides = get_collided_by_rect(new_sprite, game.blocks)
+                else:
+                    collides = get_collided_by_rect(new_sprite, game.players, game.blocks)
                 if len(collides) == 0 and 0 <= new_sprite.rect.left:
                     new_direction = direction
                     del new_sprite
@@ -783,35 +907,67 @@ class StrongTank(Enemy):
 
 
 class Player(Tank):
-    def __init__(self, x, y, game, *groups):
+    _instances = [None, None]
+
+    def __init__(self, x, y, game, tier, lives, *groups):
         super().__init__(x, y, 90, game, *groups)
-        self.animation = cycle((load_image('tier1_tank', (self.cell_size, self.cell_size), -1),
-                                load_image('tier1_tank_2', (self.cell_size, self.cell_size), -1)))
+        self.number = Player._instances.index(None)
+        self.start_coords = (x, y)
+        Player._instances[self.number] = self
+        if self.number:
+            self.animation = cycle((load_image('tier1_tank_second', (self.cell_size, self.cell_size), -1),
+                                    load_image('tier1_tank_second_2', (self.cell_size, self.cell_size), -1)))
+        else:
+            self.animation = cycle((load_image('tier1_tank', (self.cell_size, self.cell_size), -1),
+                                    load_image('tier1_tank_2', (self.cell_size, self.cell_size), -1)))
         self.image = next(self.animation)
+        self.vel_x, self.vel_y = 0, 0
         self.score = 0
-        self.lives = 3
+        self.lives = lives
+        self.tier = tier
+        self.change_tier()
 
     def check_controls(self, event: pygame.event.EventType):
-        if pygame.key.get_pressed()[pygame.K_LEFT]:
-            self.vel_x = -self.velocity
-            self.vel_y = 0
-        elif pygame.key.get_pressed()[pygame.K_RIGHT]:
-            self.vel_x = self.velocity
-            self.vel_y = 0
-        elif pygame.key.get_pressed()[pygame.K_UP]:
-            self.vel_y = -self.velocity
-            self.vel_x = 0
-        elif pygame.key.get_pressed()[pygame.K_DOWN]:
-            self.vel_y = self.velocity
-            self.vel_x = 0
-        else:
-            self.vel_x = 0
-            self.vel_y = 0
-        if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
-            self.shoot()
+        if self.number == 0:
+            if pygame.key.get_pressed()[pygame.K_a]:
+                self.vel_x = -self.velocity
+                self.vel_y = 0
+            elif pygame.key.get_pressed()[pygame.K_d]:
+                self.vel_x = self.velocity
+                self.vel_y = 0
+            elif pygame.key.get_pressed()[pygame.K_w]:
+                self.vel_y = -self.velocity
+                self.vel_x = 0
+            elif pygame.key.get_pressed()[pygame.K_s]:
+                self.vel_y = self.velocity
+                self.vel_x = 0
+            else:
+                self.vel_x = 0
+                self.vel_y = 0
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_SPACE:
+                self.shoot()
+        elif self.number == 1:
+            if pygame.key.get_pressed()[pygame.K_LEFT]:
+                self.vel_x = -self.velocity
+                self.vel_y = 0
+            elif pygame.key.get_pressed()[pygame.K_RIGHT]:
+                self.vel_x = self.velocity
+                self.vel_y = 0
+            elif pygame.key.get_pressed()[pygame.K_UP]:
+                self.vel_y = -self.velocity
+                self.vel_x = 0
+            elif pygame.key.get_pressed()[pygame.K_DOWN]:
+                self.vel_y = self.velocity
+                self.vel_x = 0
+            else:
+                self.vel_x = 0
+                self.vel_y = 0
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_KP_ENTER:
+                self.shoot()
 
     def respawn(self):
-        self.__init__(CELL_SIZE * 8, CELL_SIZE * 24, game, game.players)
+        Player._instances[self.number] = None
+        self.__init__(*self.start_coords, game, 1, self.lives - 1, game.players)
 
 
 class Block(pygame.sprite.Sprite):
@@ -942,7 +1098,8 @@ class Bullet(pygame.sprite.Sprite):
             if collided:
                 for sprite in collided:
                     sprite.is_under_fire(self)
-                self.terminate()
+                if not all(map(lambda x: isinstance(x, WaterWall), collided)):
+                    self.terminate()
         elif isinstance(self.owner, Enemy):
             collided = get_collided_by_mask(self, game.players)
             if collided:
@@ -953,6 +1110,8 @@ class Bullet(pygame.sprite.Sprite):
             if collided:
                 for sprite in collided:
                     sprite.is_under_fire(self)
+                if not all(map(lambda x: isinstance(x, WaterWall), collided)):
+                    self.terminate()
                 self.terminate()
         if get_collided_by_mask(self, game.flag_group):
             if SOUND_ON:
@@ -1080,12 +1239,12 @@ class Menu:
                         'Продолжить': {'font': self.font, 'selected': False, 'pos': None},
                         'Конструктор': {'font': self.font, 'selected': False, 'pos': None},
                         'Выход': {'font': self.font, 'selected': False, 'pos': None}}
+        self.players_button_selected = False
+        text = self.players_button_rect = pygame.font.SysFont(None, 50).render('Один игрок', 1, (255, 255, 255))
+        self.players_button_rect = text.get_rect().move(self.width - text.get_width(), self.height - text.get_height())
         self.logo = load_image('logo', color_key=(0, 0, 0))
         self.copyright = load_image('copyright', color_key=(0, 0, 0))
         self.running = True
-        self.show_levels = False
-        self.shortcuts = []
-        self.shift = 0
         self.main_loop()
 
     def main_loop(self):
@@ -1096,56 +1255,33 @@ class Menu:
     def render(self):
         self.screen.fill((0, 0, 0))
         self.screen.blit(self.logo, (self.width // 2 - self.logo.get_width() // 2, 30))
-        if self.show_levels:
-            coords = cycle([0, 256, 512])
-            count = 0
-            sub_window = pygame.Surface((752, 489))
-            for shortcut in self.shortcuts:
-                rect = pygame.Rect(next(coords), 256 * (count // 3) + self.shift, 240, 240)
-                sub_window.blit(shortcut, rect.topleft)
-                pygame.draw.rect(sub_window, (255, 255, 255), rect, 5)
-                count += 1
-            self.screen.blit(sub_window, (WINDOW_SIZE[0] // 2 - (240 * 3 + 16 * 2) // 2, 56 + self.logo.get_height()))
-            pygame.draw.rect(self.screen, (255, 255, 255), (WINDOW_SIZE[0] // 2 - (240 * 3 + 16 * 2) // 2 - 1,
-                                                            56 + self.logo.get_height() - 1, 752 + 1, 489 + 1), 1)
+        self.screen.blit(self.copyright, (self.width // 2 - self.copyright.get_width() // 2,
+                                          self.height - self.copyright.get_height() - 20))
+        # Рендерим кнопки
+        for n, (key, value) in enumerate(self.buttons.items()):
+            text_x = self.width // 2 - 77
+            text_y = self.height // 2 - 100 + n * 50
+            button = value['font'].render(key, 1, (255, 255, 255))
+            if value['selected']:
+                default_width, default_height = button.get_width(), button.get_height()
+                button = pygame.font.SysFont(None, 50).render(key, 1, (255, 255, 255))
+                text_x = self.width // 2 - 77 - (button.get_width() - default_width) // 2
+                text_y = self.height // 2 - 100 + n * 50 - (button.get_height() - default_height) // 2
+            self.buttons[key]['pos'] = (text_x, text_y, text_x + button.get_width(), text_y + button.get_height())
+            self.screen.blit(button, (text_x, text_y))
+
+        if self.players_button_selected:
+            text = pygame.font.SysFont(None, 50).render('Два игрока' if TWO_PLAYERS else 'Один игрок',
+                                                        1, (255, 255, 255))
         else:
-            self.screen.blit(self.copyright, (self.width // 2 - self.copyright.get_width() // 2,
-                                              self.height - self.copyright.get_height() - 20))
-            # Рендерим кнопки
-            for n, (key, value) in enumerate(self.buttons.items()):
-                text_x = self.width // 2 - 77
-                text_y = self.height // 2 - 100 + n * 50
-                button = value['font'].render(key, 1, (255, 255, 255))
-                if value['selected']:
-                    default_width, default_height = button.get_width(), button.get_height()
-                    button = pygame.font.SysFont(None, 50).render(key, 1, (255, 255, 255))
-                    text_x = self.width // 2 - 77 - (button.get_width() - default_width) // 2
-                    text_y = self.height // 2 - 100 + n * 50 - (button.get_height() - default_height) // 2
-                self.buttons[key]['pos'] = (text_x, text_y, text_x + button.get_width(), text_y + button.get_height())
-                self.screen.blit(button, (text_x, text_y))
-            # ^ Конец рендера кнопок
+            text = self.font.render('Два игрока' if TWO_PLAYERS else 'Один игрок', 1, (255, 255, 255))
+        x, y = self.width - text.get_width(), self.height - text.get_height()
+        self.screen.blit(text, (x, y))
+        # ^ Конец рендера кнопок
         pygame.display.flip()
 
-    def create_shortcut(self, filename):
-        shortcut = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
-        _map, enemies = read_map(filename)
-        for i in range(len(_map)):
-            for j in range(len(_map[i])):
-                if _map[i][j] == 1:
-                    shortcut.blit(self.parent.brick_wall_texture, (j * CELL_SIZE, i * CELL_SIZE))
-                elif _map[i][j] == 2:
-                    shortcut.blit(self.parent.concrete_wall_texture, (j * CELL_SIZE, i * CELL_SIZE))
-                elif _map[i][j] == 3:
-                    shortcut.blit(self.parent.water_texture, (j * CELL_SIZE, i * CELL_SIZE))
-                elif _map[i][j] == 4:
-                    shortcut.blit(self.parent.ice_texture, (j * CELL_SIZE, i * CELL_SIZE))
-                elif _map[i][j] == 5:
-                    shortcut.blit(self.parent.grass_texture, (j * CELL_SIZE, i * CELL_SIZE))
-        shortcut = pygame.transform.scale(shortcut, (240, 240))
-        return shortcut
-
     def check_events(self):
-        global EXIT_TO_MENU
+        global EXIT_TO_MENU, TWO_PLAYERS
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
@@ -1161,38 +1297,24 @@ class Menu:
                         self.width, self.height = self.get_resolution()
                         pygame.display.set_mode(self.get_size(), pygame.FULLSCREEN)
                     self.parent.fullscreen_mode = not self.parent.fullscreen_mode
-                if event.key == pygame.K_ESCAPE:
-                    self.show_levels = False
             elif event.type == pygame.MOUSEMOTION:
                 mouse_x, mouse_y = event.pos
                 # Проверка на наведение мышки на кнопку
                 for key, value in self.buttons.items():
                     button_x, button_y, button_width, button_height = value['pos']
-                    if mouse_x in range(button_x, button_width + 1) and\
+                    if mouse_x in range(button_x, button_width + 1) and \
                             mouse_y in range(button_y, button_height + 1):
                         self.buttons[key]['selected'] = True
                     else:
                         self.buttons[key]['selected'] = False
-            elif event.type == pygame.MOUSEBUTTONUP and event.button not in (4, 5):
-                if self.show_levels:
-                    coords = cycle([0, 256, 512])
-                    for shortcut in range(len(self.shortcuts)):
-                        rect = pygame.Rect(next(coords) + WINDOW_SIZE[0] // 2 - (240 * 3 + 16 * 2) // 2, 256 * \
-                                           (shortcut // 3) + self.shift + 56 + self.logo.get_height(), 240, 240)
-                        if rect.collidepoint(*event.pos):
-                            self.parent.level = shortcut + 1
-                            self.running = False
-                            self.parent.run = True
-                            break
+                self.players_button_selected = self.players_button_rect.collidepoint((mouse_x, mouse_y))
+            elif event.type == pygame.MOUSEBUTTONUP:
+                if self.players_button_selected:
+                    TWO_PLAYERS = not TWO_PLAYERS
                 for k, v in self.buttons.items():
                     if v['selected']:
                         if k == 'Новая игра':
-                            self.show_levels = True
-                            if os.path.exists('data/levels'):
-                                for item in os.listdir('data/levels'):
-                                    num = item[6:-4]
-                                    if item[:6] == 'level_' and num.isdigit() and item[-4:] == '.txt':
-                                        self.shortcuts.append(self.create_shortcut(f'data/levels/{item}'))
+                            LevelMenu(self)
                             break
                         elif k == 'Продолжить':
                             self.running = False
@@ -1206,11 +1328,6 @@ class Menu:
                             self.running = False
                             self.parent.run = False
                             break
-            elif event.type == pygame.MOUSEBUTTONDOWN and self.show_levels:
-                if event.button == 4:
-                    self.shift -= 100
-                elif event.button == 5 and self.shift < 0:
-                    self.shift += 100
 
     def get_size(self):
         return self.width, self.height
@@ -1219,8 +1336,146 @@ class Menu:
         return ctypes.windll.user32.GetSystemMetrics(0), ctypes.windll.user32.GetSystemMetrics(1)
 
 
+class LevelMenu:
+    def __init__(self, menu: Menu):
+        self.menu = menu
+        self.width, self.height = WINDOW_SIZE
+        pygame.font.init()
+        if self.menu.parent.fullscreen_mode:
+            self.screen = pygame.display.set_mode(self.menu.get_size(), pygame.FULLSCREEN)
+        else:
+            self.screen = pygame.display.set_mode(WINDOW_SIZE)
+        self.shortcuts = ShortcutGroup()
+        if os.path.exists('data/levels'):
+            maps_list = sorted(filter(lambda x: x[6].isdigit(), os.listdir('data/levels')), key=lambda x: int(x[6:-4]))
+            for item in maps_list:
+                num = item[6:-4]
+                if item[:6] == 'level_' and num.isdigit() and item[-4:] == '.txt':
+                    self.load_shortcut(f'data/levels/{item}')
+        self.run = True
+        self.main_loop()
+
+    def main_loop(self):
+        while self.run:
+            self.check_controls()
+            self.shortcuts.update()
+            self.render()
+
+    def check_controls(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.run = False
+                self.menu.running = False
+                self.menu.parent.run = False
+            elif event.type == pygame.MOUSEMOTION:
+                self.shortcuts.check_mouse_move(self.to_tape_coords(event.pos))
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:
+                    self.menu.parent.level = self.shortcuts.check_click(self.to_tape_coords(event.pos))
+                    if self.menu.parent.level is not None:
+                        self.run = False
+                        self.menu.running = False
+                elif event.button == 4:
+                    self.shortcuts.move_down(50, self.height - self.menu.logo.get_height() - 46)
+                elif event.button == 5:
+                    self.shortcuts.move_down(-50, self.height - self.menu.logo.get_height() - 46)
+            elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self.run = False
+        if pygame.key.get_pressed()[pygame.K_UP]:
+            self.shortcuts.move_down(10, self.height - self.menu.logo.get_height() - 46)
+        elif pygame.key.get_pressed()[pygame.K_DOWN]:
+            self.shortcuts.move_down(-10, self.height - self.menu.logo.get_height() - 46)
+
+    def render(self):
+        self.screen.fill((0, 0, 0))
+        self.screen.blit(self.menu.logo, (self.width // 2 - self.menu.logo.get_width() // 2, 30))
+        canvas_tape = pygame.Surface((752, self.height - self.menu.logo.get_height() - 46))
+        self.shortcuts.draw(canvas_tape)
+        self.screen.blit(canvas_tape, (self.width // 2 - canvas_tape.get_width() // 2,
+                                       self.menu.logo.get_height() + 46))
+        pygame.draw.rect(self.screen, (255, 255, 255), (self.width // 2 - canvas_tape.get_width() // 2 - 1,
+                                                        self.menu.logo.get_height() + 46 - 1,
+                                                        canvas_tape.get_width() + 2, canvas_tape.get_height() + 2), 2)
+        pygame.display.flip()
+
+    def to_tape_coords(self, coords: tuple):
+        return coords[0] - (self.width // 2 - 376), coords[1] - (self.menu.logo.get_height() + 46)
+
+    def load_shortcut(self, filename):
+        image = pygame.Surface((PLAYGROUND_WIDTH, PLAYGROUND_WIDTH))
+        _map, enemies = read_map(filename)
+        for i in range(len(_map)):
+            for j in range(len(_map[i])):
+                if _map[i][j] == 1:
+                    image.blit(self.menu.parent.brick_wall_texture, (j * CELL_SIZE, i * CELL_SIZE))
+                elif _map[i][j] == 2:
+                    image.blit(self.menu.parent.concrete_wall_texture, (j * CELL_SIZE, i * CELL_SIZE))
+                elif _map[i][j] == 3:
+                    image.blit(self.menu.parent.water_texture, (j * CELL_SIZE, i * CELL_SIZE))
+                elif _map[i][j] == 4:
+                    image.blit(self.menu.parent.ice_texture, (j * CELL_SIZE, i * CELL_SIZE))
+                elif _map[i][j] == 5:
+                    image.blit(self.menu.parent.grass_texture, (j * CELL_SIZE, i * CELL_SIZE))
+        Shortcut(pygame.transform.scale(image, (240, 240)), filename, self.shortcuts)
+
+
+class Shortcut(pygame.sprite.Sprite):
+    def __init__(self, image: pygame.SurfaceType, level, *groups):
+        super().__init__(*groups)
+        self.image = image
+        self.rect = pygame.Rect(self.image.get_rect())
+        self.shift = 0
+        self.rect.x += ((len(self.groups()[0]) - 1) % 3) * (self.rect.width + self.rect.width // 15)
+        self.rect.y += ((len(self.groups()[0]) - 1) // 3) * (self.rect.width + self.rect.width // 15)
+        pygame.draw.rect(self.image, (255, 255, 255), (0, 0, self.rect.width, self.rect.height), 5)
+        self.level = level
+        self.highlighted = False
+
+    def update(self):
+        if self.highlighted:
+            pygame.draw.rect(self.image, (255, 0, 0), (0, 0, self.rect.width, self.rect.height), 5)
+        else:
+            pygame.draw.rect(self.image, (255, 255, 255), (0, 0, self.rect.width, self.rect.height), 5)
+
+    def check_mouse_move(self, point: tuple):
+        self.highlighted = self.rect.collidepoint(point) and 0 <= point[1]
+
+    def check_click(self, point: tuple):
+        return self.rect.collidepoint(point)
+
+
+class ShortcutGroup(pygame.sprite.Group):
+    def __init__(self, *sprites: Shortcut):
+        super().__init__(*sprites)
+
+    def check_mouse_move(self, point: tuple):
+        for sprite in self.sprites():
+            sprite.check_mouse_move(point)
+
+    def check_click(self, point: tuple):
+        chosen_level = None
+        for sprite in self.sprites():
+            if sprite.check_click(point):
+                sprite.highlighted = True
+                chosen_level = sprite.level
+            else:
+                sprite.highlighted = False
+        return chosen_level
+
+    def move_down(self, step: int, bottom_edge: int):
+        rect = self.sprites()[0].rect.move(0, step)
+        if rect.top > 0:
+            step = -self.sprites()[0].rect.top
+        else:
+            rect = self.sprites()[-1].rect.move(0, step)
+            if rect.bottom < bottom_edge:
+                step = bottom_edge - rect.bottom
+        for sprite in self.sprites():
+            sprite.rect.y += step
+
+
 class Constructor:
-    def __init__(self, menu):
+    def __init__(self, menu: Menu):
         self.menu = menu
         self.width, self.height = WINDOW_SIZE
         pygame.font.init()
