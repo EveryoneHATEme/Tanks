@@ -309,11 +309,15 @@ class Game:
             if self.loading_screen_2_pos[1] >= PLAYGROUND_WIDTH:
                 self.starting_level_2 = False
         sc_width, sc_height = self.screen.get_size()
-        self.screen.blit(canvas, (sc_width // 32,
+        if self.fullscreen_mode:
+            canvas_x = self.get_resolution()[0] // 2 - (sc_width // 32 + PLAYGROUND_WIDTH + 5 + CELL_SIZE * 8) // 2
+        else:
+            canvas_x = sc_width // 32
+        self.screen.blit(canvas, (canvas_x,
                                   sc_height // 2 - canvas.get_height() // 2))
         font = pygame.font.SysFont('arial', 21, bold=True)
         label = font.render(f'УРОВЕНЬ: {self.level}', True, (0, 0, 0))
-        rect = pygame.Rect(sc_width // 32 + canvas.get_width() + 5, sc_height // 2 - canvas.get_height() // 2,
+        rect = pygame.Rect(canvas_x + canvas.get_width() + 5, sc_height // 2 - canvas.get_height() // 2,
                            CELL_SIZE * 8, label.get_height())
         pygame.draw.rect(self.screen, (92, 157, 124), rect)
         pygame.draw.rect(self.screen, (0, 0, 0), rect, 2)
@@ -373,7 +377,7 @@ class Game:
         self.screen.blit(label, (rect.left + CELL_SIZE * 7 - label.get_width() // 2,
                                  rect.top + CELL_SIZE * 7 - label.get_height() // 2))
         pygame.draw.rect(self.screen, (0, 0, 0), rect, 2)
-        rect = pygame.Rect(sc_width // 32 + canvas.get_width() + 5,
+        rect = pygame.Rect(canvas_x + canvas.get_width() + 5,
                            sc_height // 2 - canvas.get_height() // 2 + canvas.get_height() - CELL_SIZE * 2,
                            CELL_SIZE * 8, CELL_SIZE * 2)
         pygame.draw.rect(self.screen, (128, 128, 128), rect)
@@ -1554,7 +1558,6 @@ class Constructor:
         self.check_controls()
 
     def check_controls(self):
-        pygame.key.get_pressed()
         if pygame.key.get_pressed()[pygame.K_1]:
             self.change_map(BrickWall(self.curr_x * CELL_SIZE, self.curr_y * CELL_SIZE))
         elif pygame.key.get_pressed()[pygame.K_2]:
